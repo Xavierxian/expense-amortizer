@@ -6,6 +6,7 @@ import {
   CalendarRange,
   BookOpen,
   FileText,
+  Building2,
 } from "lucide-react";
 import {
   Sidebar,
@@ -21,6 +22,7 @@ import {
 
 const navItems = [
   { title: "总览", url: "/", icon: LayoutDashboard },
+  { title: "主体管理", url: "/entities", icon: Building2 },
   { title: "费用导入", url: "/fees", icon: Upload },
   { title: "摊销规则", url: "/rules", icon: Settings2 },
   { title: "月度摊销表", url: "/amort-table", icon: CalendarRange },

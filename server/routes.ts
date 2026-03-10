@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertAccountSchema, insertFeeSchema, insertRuleTemplateSchema } from "@shared/schema";
+import { insertAccountSchema, insertFeeSchema, insertRuleTemplateSchema, insertEntitySchema } from "@shared/schema";
 import multer from "multer";
 import * as XLSX from "xlsx";
 
@@ -59,6 +59,36 @@ export async function registerRoutes(
     const currentMonth = getCurrentMonth();
     const stats = await storage.getDashboardStats(currentMonth);
     res.json(stats);
+  });
+
+  app.get("/api/entities", async (_req, res) => {
+    const list = await storage.getEntities();
+    res.json(list);
+  });
+
+  app.post("/api/entities", async (req, res) => {
+    const parsed = insertEntitySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    try {
+      const entity = await storage.createEntity(parsed.data);
+      res.json(entity);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.put("/api/entities/:id", async (req, res) => {
+    const parsed = insertEntitySchema.partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    const entity = await storage.updateEntity(Number(req.params.id), parsed.data);
+    if (!entity) return res.status(404).json({ message: "Not found" });
+    res.json(entity);
+  });
+
+  app.delete("/api/entities/:id", async (req, res) => {
+    const ok = await storage.deleteEntity(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Not found" });
+    res.json({ success: true });
   });
 
   app.get("/api/accounts", async (_req, res) => {
@@ -119,8 +149,9 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
-  app.get("/api/fees", async (_req, res) => {
-    const list = await storage.getFees();
+  app.get("/api/fees", async (req, res) => {
+    const entityId = req.query.entityId ? Number(req.query.entityId) : undefined;
+    const list = await storage.getFees(entityId);
     res.json(list);
   });
 
@@ -146,6 +177,12 @@ export async function registerRoutes(
   app.post("/api/import-fee", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const entityId = Number(req.body.entityId);
+      if (!entityId) return res.status(400).json({ message: "请选择主体" });
+
+      const entity = await storage.getEntity(entityId);
+      if (!entity) return res.status(400).json({ message: "主体不存在" });
+
       const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows: any[] = XLSX.utils.sheet_to_json(sheet);
@@ -172,6 +209,7 @@ export async function registerRoutes(
         const endMonth = amortMonths ? addMonths(startMonth, amortMonths) : null;
 
         await storage.createFee({
+          entityId,
           feeCode,
           feeName,
           totalAmount,
@@ -245,18 +283,25 @@ export async function registerRoutes(
 
   app.get("/api/amort-table", async (req, res) => {
     const month = (req.query.month as string) || getCurrentMonth();
-    const entries = await storage.getEntriesByMonth(month);
+    const entityId = req.query.entityId ? Number(req.query.entityId) : undefined;
+    const entries = await storage.getEntriesByMonth(month, entityId);
     res.json(entries);
   });
 
   app.post("/api/generate-voucher", async (req, res) => {
     try {
       const month = req.body.month || getCurrentMonth();
-      const entries = await storage.getEntriesByMonth(month);
+      const entityId = req.body.entityId ? Number(req.body.entityId) : undefined;
+
+      if (!entityId) {
+        return res.status(400).json({ message: "请选择主体" });
+      }
+
+      const entries = await storage.getEntriesByMonth(month, entityId);
       const ungenerated = entries.filter(e => !e.voucherGenerated);
 
       if (ungenerated.length === 0) {
-        return res.json({ generated: 0, message: "No entries to generate vouchers for" });
+        return res.json({ generated: 0, message: "该主体当月无待生成凭证的摊销记录" });
       }
 
       const withoutAccounts = ungenerated.filter(e => !e.debitAccountCode || !e.creditAccountCode);
@@ -275,6 +320,7 @@ export async function registerRoutes(
         const voucherDate = `${month}-01`;
 
         const voucher = await storage.createVoucher({
+          entityId,
           voucherNo,
           voucherDate,
           month,
@@ -301,7 +347,8 @@ export async function registerRoutes(
 
   app.get("/api/vouchers", async (req, res) => {
     const month = (req.query.month as string) || getCurrentMonth();
-    const list = await storage.getVouchersByMonth(month);
+    const entityId = req.query.entityId ? Number(req.query.entityId) : undefined;
+    const list = await storage.getVouchersByMonth(month, entityId);
     res.json(list);
   });
 

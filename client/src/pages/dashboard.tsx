@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DollarSign, FileStack, FileCheck, AlertCircle, Layers } from "lucide-react";
+import { DollarSign, FileStack, FileCheck, AlertCircle, Building2 } from "lucide-react";
 import type { DashboardStats } from "@shared/schema";
 
 export default function Dashboard() {
@@ -10,6 +10,14 @@ export default function Dashboard() {
   });
 
   const cards = [
+    {
+      title: "核算主体",
+      value: stats?.entityCount ?? 0,
+      icon: Building2,
+      desc: "已创建的核算主体数",
+      color: "text-chart-5",
+      bg: "bg-chart-5/10",
+    },
     {
       title: "费用总数",
       value: stats?.totalFees ?? 0,
@@ -51,7 +59,7 @@ export default function Dashboard() {
         <p className="text-muted-foreground text-sm mt-1">费用摊销管理系统核心数据概览</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {cards.map((card, i) => (
           <Card key={i} className="hover-elevate">
             <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
@@ -86,23 +94,23 @@ export default function Dashboard() {
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <div className="flex items-start gap-3">
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">1</span>
-              <p>在「科目管理」中维护借方和贷方会计科目。</p>
+              <p>在「主体管理」中创建核算主体（如总公司、分公司）。</p>
             </div>
             <div className="flex items-start gap-3">
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">2</span>
-              <p>在「摊销规则」中按费用类别定义默认摊销月数和科目模板（如"房租"默认12个月）。</p>
+              <p>在「科目管理」中维护借方和贷方会计科目。</p>
             </div>
             <div className="flex items-start gap-3">
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">3</span>
-              <p>在「费用导入」页面上传 Excel/CSV，系统自动匹配规则模板带入默认月数，可按实际情况修改。</p>
+              <p>在「摊销规则」中按费用类别定义默认摊销月数和科目模板。</p>
             </div>
             <div className="flex items-start gap-3">
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">4</span>
-              <p>确认每条费用的摊销月数后，系统自动从费用发生日期起按月生成摊销明细。</p>
+              <p>在「费用导入」中选择主体后上传 Excel/CSV，系统自动匹配规则模板。</p>
             </div>
             <div className="flex items-start gap-3">
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">5</span>
-              <p>在「凭证管理」中批量生成当月凭证，并可通过 API 接口导出 JSON 对接财务系统。</p>
+              <p>在「凭证管理」中按主体和月份批量生成凭证，通过 API 导出 JSON。</p>
             </div>
           </CardContent>
         </Card>
@@ -115,27 +123,22 @@ export default function Dashboard() {
             <div className="p-2 rounded-md bg-muted">
               <span className="text-chart-2 font-semibold">POST</span>
               <span className="ml-2">/api/import-fee</span>
-              <p className="text-xs text-muted-foreground mt-1">上传费用 Excel/CSV</p>
-            </div>
-            <div className="p-2 rounded-md bg-muted">
-              <span className="text-chart-1 font-semibold">POST</span>
-              <span className="ml-2">/api/configure-fee-amort/:id</span>
-              <p className="text-xs text-muted-foreground mt-1">确认/修改费用摊销配置</p>
+              <p className="text-xs text-muted-foreground mt-1">上传费用 Excel/CSV（需指定 entityId）</p>
             </div>
             <div className="p-2 rounded-md bg-muted">
               <span className="text-chart-4 font-semibold">GET</span>
-              <span className="ml-2">/api/amort-table?month=YYYY-MM</span>
-              <p className="text-xs text-muted-foreground mt-1">获取月度摊销表</p>
+              <span className="ml-2">/api/amort-table?month=&entityId=</span>
+              <p className="text-xs text-muted-foreground mt-1">获取按主体筛选的月度摊销表</p>
             </div>
             <div className="p-2 rounded-md bg-muted">
               <span className="text-chart-2 font-semibold">POST</span>
               <span className="ml-2">/api/generate-voucher</span>
-              <p className="text-xs text-muted-foreground mt-1">批量生成凭证</p>
+              <p className="text-xs text-muted-foreground mt-1">按主体批量生成凭证（需指定 entityId）</p>
             </div>
             <div className="p-2 rounded-md bg-muted">
               <span className="text-chart-4 font-semibold">GET</span>
-              <span className="ml-2">/api/vouchers?month=YYYY-MM</span>
-              <p className="text-xs text-muted-foreground mt-1">获取凭证列表 (JSON)</p>
+              <span className="ml-2">/api/vouchers?month=&entityId=</span>
+              <p className="text-xs text-muted-foreground mt-1">获取按主体筛选的凭证列表 (JSON)</p>
             </div>
           </CardContent>
         </Card>

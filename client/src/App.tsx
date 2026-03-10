@@ -7,6 +7,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
+import EntityPage from "@/pages/entity";
 import FeesPage from "@/pages/fees";
 import AccountsPage from "@/pages/accounts";
 import RulesPage from "@/pages/rules";
@@ -17,6 +18,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/entities" component={EntityPage} />
       <Route path="/fees" component={FeesPage} />
       <Route path="/accounts" component={AccountsPage} />
       <Route path="/rules" component={RulesPage} />

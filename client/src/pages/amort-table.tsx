@@ -5,11 +5,14 @@ import { Input } from "@/components/ui/input";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { CalendarRange } from "lucide-react";
-import type { AmortizationEntryWithDetails } from "@shared/schema";
+import type { AmortizationEntryWithDetails, Entity } from "@shared/schema";
 
 function getCurrentMonth(): string {
   const now = new Date();
@@ -18,22 +21,43 @@ function getCurrentMonth(): string {
 
 export default function AmortTablePage() {
   const [month, setMonth] = useState(getCurrentMonth());
+  const [selectedEntityId, setSelectedEntityId] = useState<string>("");
 
+  const { data: entityList = [] } = useQuery<Entity[]>({
+    queryKey: ["/api/entities"],
+  });
+
+  const entityParam = selectedEntityId && selectedEntityId !== "all" ? `&entityId=${selectedEntityId}` : "";
   const { data: entries = [], isLoading } = useQuery<AmortizationEntryWithDetails[]>({
-    queryKey: ["/api/amort-table", `?month=${month}`],
+    queryKey: ["/api/amort-table", `?month=${month}${entityParam}`],
   });
 
   const totalAmount = entries.reduce((sum, e) => sum + Number(e.amount), 0);
+
+  const selectedEntityName = selectedEntityId && selectedEntityId !== "all"
+    ? entityList.find(e => e.id === Number(selectedEntityId))?.name
+    : "全部主体";
 
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold" data-testid="text-amort-title">月度摊销表</h1>
-          <p className="text-muted-foreground text-sm mt-1">自动计算的按月摊销汇总</p>
+          <p className="text-muted-foreground text-sm mt-1">按主体和月份查看摊销明细</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Label className="text-sm text-muted-foreground whitespace-nowrap">选择月份:</Label>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Select value={selectedEntityId} onValueChange={setSelectedEntityId}>
+            <SelectTrigger className="w-40" data-testid="select-amort-entity">
+              <SelectValue placeholder="全部主体" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部主体</SelectItem>
+              {entityList.map((e) => (
+                <SelectItem key={e.id} value={e.id.toString()}>{e.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Label className="text-sm text-muted-foreground whitespace-nowrap">月份:</Label>
           <Input
             type="month"
             value={month}
@@ -49,7 +73,7 @@ export default function AmortTablePage() {
           <CardContent className="py-4">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="text-sm text-muted-foreground">
-                {month} 月度合计 ({entries.length} 条)
+                {selectedEntityName} · {month} 月度合计 ({entries.length} 条)
               </div>
               <div className="text-xl font-bold" data-testid="text-total-amount">
                 ¥{totalAmount.toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
@@ -82,6 +106,7 @@ export default function AmortTablePage() {
                     <TableHead>摊销月份</TableHead>
                     <TableHead>费用编号</TableHead>
                     <TableHead>费用名称</TableHead>
+                    <TableHead>所属主体</TableHead>
                     <TableHead className="text-right">本月摊销</TableHead>
                     <TableHead className="text-right">累计已摊销</TableHead>
                     <TableHead className="text-right">剩余未摊销</TableHead>
@@ -96,6 +121,9 @@ export default function AmortTablePage() {
                       <TableCell className="font-mono">{entry.month}</TableCell>
                       <TableCell className="font-mono text-sm">{entry.feeCode}</TableCell>
                       <TableCell>{entry.feeName}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{entry.entityName || "-"}</Badge>
+                      </TableCell>
                       <TableCell className="text-right font-mono font-semibold">
                         ¥{Number(entry.amount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </TableCell>

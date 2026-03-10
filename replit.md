@@ -1,7 +1,7 @@
 # Fee Amortization Management System (费用摊销管理系统)
 
 ## Overview
-A full-stack expense amortization system that supports importing fees from expense control platforms, setting amortization periods and accounts, auto-generating monthly amortization tables, and providing API interfaces for generating financial vouchers.
+A full-stack multi-entity expense amortization system. Supports importing fees from expense control platforms, assigning them to accounting entities, configuring amortization templates by category, auto-generating monthly amortization tables per entity, and providing JSON API for generating financial vouchers.
 
 ## Tech Stack
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS + Shadcn/UI + TanStack Query + Wouter
@@ -16,11 +16,12 @@ client/src/
   App.tsx           - Main app with sidebar navigation
   pages/
     dashboard.tsx   - Overview page with stats
+    entity.tsx      - Entity (主体) management
     fees.tsx        - Fee import & per-fee amortization config
     accounts.tsx    - Account subject management
     rules.tsx       - Rule template management (category-level defaults)
-    amort-table.tsx - Monthly amortization table
-    vouchers.tsx    - Voucher generation & history
+    amort-table.tsx - Monthly amortization table (entity-filterable)
+    vouchers.tsx    - Voucher generation & history (per-entity)
   components/
     app-sidebar.tsx - Navigation sidebar
 
@@ -29,40 +30,46 @@ server/
   routes.ts   - All API routes
   storage.ts  - Database storage layer
   db.ts       - Database connection
-  seed.ts     - Seed data
+  seed.ts     - Seed data (3 entities, 5 accounts, 4 templates, 4 fees)
 
 shared/
   schema.ts   - Drizzle schema + types
 ```
 
 ## Database Tables
+- `entities` - Accounting entities (核算主体: 总公司, 分公司 etc.)
 - `accounts` - Chart of accounts (debit/credit subjects)
 - `rule_templates` - Category-level amortization rule templates (name, defaultMonths, default accounts)
-- `fees` - Imported fee records with inline amortization config (amortMonths, startMonth, endMonth, debitAccountId, creditAccountId, amortConfigured)
-- `amortization_entries` - Monthly amortization schedule entries (references feeId only)
-- `vouchers` - Generated financial vouchers
+- `fees` - Imported fee records with entityId and inline amortization config
+- `amortization_entries` - Monthly amortization schedule entries (references feeId)
+- `vouchers` - Generated financial vouchers with entityId
 
-## Key Design: Two-Level Amortization Config
-1. **Rule Templates** (摊销规则): Category-level defaults. E.g., "房租" defaults to 12 months, "装修费" defaults to 36 months. Templates define default months and default debit/credit accounts.
-2. **Per-Fee Config** (费用摊销配置): Each individual fee carries its own amortization config. On import, fees auto-match a template by name keyword (longest match) to pre-fill defaults, but users can override months per fee (e.g., rent might be 12 or 3 months). Start month is auto-derived from fee date.
+## Key Design
+### Multi-Entity Support
+Each fee belongs to a specific entity. Amortization tables and vouchers can be filtered/generated per entity. Voucher generation requires selecting a specific entity.
+
+### Two-Level Amortization Config
+1. **Rule Templates** (摊销规则): Category-level defaults (e.g., "房租"→12个月, "装修费"→36个月)
+2. **Per-Fee Config** (费用摊销配置): Each fee has its own amortization config, auto-filled from template but individually overridable
 
 ## API Endpoints
-- `POST /api/import-fee` - Import fees from Excel/CSV (auto-matches rule templates)
-- `POST /api/configure-fee-amort/:id` - Configure/confirm per-fee amortization (months, accounts)
-- `GET /api/amort-table?month=YYYY-MM` - Get monthly amortization table
-- `POST /api/generate-voucher` - Batch generate vouchers for a month
-- `GET /api/vouchers?month=YYYY-MM` - Get voucher list (JSON)
-- CRUD: `/api/accounts`, `/api/rule-templates`, `/api/fees`
+- `GET/POST/PUT/DELETE /api/entities` - Entity CRUD
+- `POST /api/import-fee` - Import fees (requires entityId in form data)
+- `GET /api/fees?entityId=` - List fees, optional entity filter
+- `POST /api/configure-fee-amort/:id` - Configure per-fee amortization
+- `GET /api/amort-table?month=&entityId=` - Monthly amortization table
+- `POST /api/generate-voucher` - Generate vouchers (requires entityId)
+- `GET /api/vouchers?month=&entityId=` - Voucher list (JSON)
+- CRUD: `/api/accounts`, `/api/rule-templates`
 - `GET /api/dashboard` - Dashboard stats
 
 ## Key Features
-- Excel/CSV import with duplicate detection by fee code
+- Multi-entity accounting support
+- Excel/CSV import with entity assignment and duplicate detection
 - Category-level rule templates with auto-matching on import
 - Per-fee amortization config with template defaults + individual override
 - Equal monthly amortization with tail difference adjustment
 - Start month auto-derived from fee occurrence date
-- Configurable debit/credit accounts per fee
-- Auto-calculated cumulative and remaining amounts
-- Voucher generation with standard debit/credit entries
-- JSON API for financial system integration
+- Entity-filtered amortization tables and vouchers
+- Voucher generation per entity with JSON API for financial system integration
 - All UI in Chinese (简体中文)

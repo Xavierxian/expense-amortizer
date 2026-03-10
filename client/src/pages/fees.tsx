@@ -18,9 +18,9 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, Plus, Trash2, Search, FileSpreadsheet, Settings2, ArrowRight } from "lucide-react";
-import type { Fee, InsertFee, Account } from "@shared/schema";
+import type { Fee, InsertFee, Account, Entity } from "@shared/schema";
 
-function addMonths(yearMonth: string, count: number): string {
+function addMonthsFn(yearMonth: string, count: number): string {
   if (!yearMonth || count <= 0) return yearMonth;
   const [y, m] = yearMonth.split("-").map(Number);
   const totalMonths = y * 12 + (m - 1) + (count - 1);
@@ -40,11 +40,13 @@ export default function FeesPage() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
+  const [selectedEntityId, setSelectedEntityId] = useState<string>("");
+  const [importEntityId, setImportEntityId] = useState<string>("");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [amortDialogOpen, setAmortDialogOpen] = useState(false);
   const [selectedFee, setSelectedFee] = useState<Fee | null>(null);
   const [formData, setFormData] = useState<Partial<InsertFee>>({
-    feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "",
+    entityId: 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "",
   });
   const [amortForm, setAmortForm] = useState({
     amortMonths: 12,
@@ -52,8 +54,13 @@ export default function FeesPage() {
     creditAccountId: "",
   });
 
+  const { data: entityList = [] } = useQuery<Entity[]>({
+    queryKey: ["/api/entities"],
+  });
+
+  const entityParam = selectedEntityId && selectedEntityId !== "all" ? `?entityId=${selectedEntityId}` : "";
   const { data: fees = [], isLoading } = useQuery<Fee[]>({
-    queryKey: ["/api/fees"],
+    queryKey: ["/api/fees", entityParam],
   });
 
   const { data: accts = [] } = useQuery<Account[]>({
@@ -63,12 +70,22 @@ export default function FeesPage() {
   const debitAccounts = accts.filter((a) => a.type === "debit");
   const creditAccounts = accts.filter((a) => a.type === "credit");
 
+  const entityName = (entityId: number) => {
+    const e = entityList.find(x => x.id === entityId);
+    return e ? e.name : "-";
+  };
+
   const importMutation = useMutation({
     mutationFn: async (file: File) => {
+      if (!importEntityId) throw new Error("请先选择导入主体");
       const fd = new FormData();
       fd.append("file", file);
+      fd.append("entityId", importEntityId);
       const res = await fetch("/api/import-fee", { method: "POST", body: fd });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "导入失败" }));
+        throw new Error(err.message);
+      }
       return res.json();
     },
     onSuccess: (data) => {
@@ -93,7 +110,6 @@ export default function FeesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/fees"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setAddDialogOpen(false);
-      setFormData({ feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "" });
       toast({ title: "添加成功" });
     },
     onError: (e: Error) => {
@@ -158,7 +174,7 @@ export default function FeesPage() {
 
   const selectedStartMonth = selectedFee ? feeeDateToMonth(selectedFee.feeDate) : "";
   const selectedEndMonth = selectedStartMonth && amortForm.amortMonths > 0
-    ? addMonths(selectedStartMonth, amortForm.amortMonths) : "";
+    ? addMonthsFn(selectedStartMonth, amortForm.amortMonths) : "";
 
   const filtered = fees.filter(
     (f) =>
@@ -174,6 +190,16 @@ export default function FeesPage() {
           <p className="text-muted-foreground text-sm mt-1">导入费用明细，配置每条费用的摊销月数</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Select value={importEntityId} onValueChange={setImportEntityId}>
+            <SelectTrigger className="w-40" data-testid="select-import-entity">
+              <SelectValue placeholder="选择导入主体" />
+            </SelectTrigger>
+            <SelectContent>
+              {entityList.map((e) => (
+                <SelectItem key={e.id} value={e.id.toString()}>{e.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <input
             ref={fileInputRef}
             type="file"
@@ -187,14 +213,23 @@ export default function FeesPage() {
             data-testid="input-file-upload"
           />
           <Button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => {
+              if (!importEntityId) {
+                toast({ title: "请先选择导入主体", variant: "destructive" });
+                return;
+              }
+              fileInputRef.current?.click();
+            }}
             disabled={importMutation.isPending}
             data-testid="button-import"
           >
             <Upload className="w-4 h-4 mr-1" />
             {importMutation.isPending ? "导入中..." : "导入 Excel/CSV"}
           </Button>
-          <Button variant="secondary" onClick={() => setAddDialogOpen(true)} data-testid="button-add-fee">
+          <Button variant="secondary" onClick={() => {
+            setFormData({ entityId: importEntityId ? Number(importEntityId) : 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "" });
+            setAddDialogOpen(true);
+          }} data-testid="button-add-fee">
             <Plus className="w-4 h-4 mr-1" />
             手动添加
           </Button>
@@ -205,15 +240,28 @@ export default function FeesPage() {
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <CardTitle className="text-base">费用列表</CardTitle>
-            <div className="relative w-64">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="搜索费用编号或名称..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8"
-                data-testid="input-search-fees"
-              />
+            <div className="flex items-center gap-2 flex-wrap">
+              <Select value={selectedEntityId} onValueChange={setSelectedEntityId}>
+                <SelectTrigger className="w-40" data-testid="select-filter-entity">
+                  <SelectValue placeholder="全部主体" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部主体</SelectItem>
+                  {entityList.map((e) => (
+                    <SelectItem key={e.id} value={e.id.toString()}>{e.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="relative w-56">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="搜索费用编号或名称..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-8"
+                  data-testid="input-search-fees"
+                />
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -226,7 +274,7 @@ export default function FeesPage() {
             <div className="text-center py-12 text-muted-foreground">
               <FileSpreadsheet className="w-12 h-12 mx-auto mb-3 opacity-40" />
               <p className="text-sm">暂无费用数据</p>
-              <p className="text-xs mt-1">请点击上方按钮导入 Excel/CSV 文件或手动添加</p>
+              <p className="text-xs mt-1">请选择主体后导入 Excel/CSV 文件或手动添加</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -235,6 +283,7 @@ export default function FeesPage() {
                   <TableRow>
                     <TableHead>费用编号</TableHead>
                     <TableHead>费用名称</TableHead>
+                    <TableHead>所属主体</TableHead>
                     <TableHead className="text-right">总金额</TableHead>
                     <TableHead>发生日期</TableHead>
                     <TableHead className="text-center">摊销月数</TableHead>
@@ -248,6 +297,9 @@ export default function FeesPage() {
                     <TableRow key={fee.id} data-testid={`row-fee-${fee.id}`}>
                       <TableCell className="font-mono text-sm">{fee.feeCode}</TableCell>
                       <TableCell>{fee.feeName}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{entityName(fee.entityId)}</Badge>
+                      </TableCell>
                       <TableCell className="text-right font-mono">
                         ¥{Number(fee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </TableCell>
@@ -309,6 +361,22 @@ export default function FeesPage() {
           </DialogHeader>
           <div className="space-y-3">
             <div>
+              <Label>所属主体 *</Label>
+              <Select
+                value={formData.entityId?.toString() || ""}
+                onValueChange={(v) => setFormData({ ...formData, entityId: Number(v) })}
+              >
+                <SelectTrigger data-testid="select-add-entity">
+                  <SelectValue placeholder="选择主体" />
+                </SelectTrigger>
+                <SelectContent>
+                  {entityList.map((e) => (
+                    <SelectItem key={e.id} value={e.id.toString()}>{e.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <Label>费用编号 *</Label>
               <Input value={formData.feeCode || ""} onChange={(e) => setFormData({ ...formData, feeCode: e.target.value })} data-testid="input-fee-code" />
             </div>
@@ -328,16 +396,12 @@ export default function FeesPage() {
               <Label>来源单据号</Label>
               <Input value={formData.sourceRef || ""} onChange={(e) => setFormData({ ...formData, sourceRef: e.target.value })} data-testid="input-source-ref" />
             </div>
-            <div>
-              <Label>来源系统</Label>
-              <Input value={formData.sourceSystem || ""} onChange={(e) => setFormData({ ...formData, sourceSystem: e.target.value })} data-testid="input-source-system" />
-            </div>
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setAddDialogOpen(false)} data-testid="button-cancel-add">取消</Button>
             <Button
               onClick={() => addMutation.mutate(formData)}
-              disabled={addMutation.isPending || !formData.feeCode || !formData.feeName || !formData.totalAmount || !formData.feeDate}
+              disabled={addMutation.isPending || !formData.entityId || !formData.feeCode || !formData.feeName || !formData.totalAmount || !formData.feeDate}
               data-testid="button-confirm-add"
             >
               {addMutation.isPending ? "保存中..." : "保存"}
@@ -373,7 +437,7 @@ export default function FeesPage() {
               <p className="text-xs text-muted-foreground mt-1">从规则模板自动带入，可根据实际情况修改</p>
             </div>
             {selectedStartMonth && selectedEndMonth && (
-              <div className="flex items-center gap-2 p-3 rounded-md bg-muted text-sm">
+              <div className="flex items-center gap-2 p-3 rounded-md bg-muted text-sm flex-wrap">
                 <span className="font-medium">摊销区间:</span>
                 <span className="font-mono">{selectedStartMonth}</span>
                 <ArrowRight className="w-4 h-4 text-muted-foreground" />

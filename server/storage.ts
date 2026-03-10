@@ -1,7 +1,8 @@
 import { db } from "./db";
-import { eq, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 import {
-  accounts, fees, ruleTemplates, amortizationEntries, vouchers,
+  entities, accounts, fees, ruleTemplates, amortizationEntries, vouchers,
+  type InsertEntity, type Entity,
   type InsertAccount, type Account,
   type InsertFee, type Fee,
   type InsertRuleTemplate, type RuleTemplate,
@@ -12,6 +13,12 @@ import {
 } from "@shared/schema";
 
 export interface IStorage {
+  getEntities(): Promise<Entity[]>;
+  getEntity(id: number): Promise<Entity | undefined>;
+  createEntity(data: InsertEntity): Promise<Entity>;
+  updateEntity(id: number, data: Partial<InsertEntity>): Promise<Entity | undefined>;
+  deleteEntity(id: number): Promise<boolean>;
+
   getAccounts(): Promise<Account[]>;
   getAccount(id: number): Promise<Account | undefined>;
   createAccount(data: InsertAccount): Promise<Account>;
@@ -25,20 +32,20 @@ export interface IStorage {
   updateRuleTemplate(id: number, data: Partial<InsertRuleTemplate>): Promise<RuleTemplate | undefined>;
   deleteRuleTemplate(id: number): Promise<boolean>;
 
-  getFees(): Promise<Fee[]>;
+  getFees(entityId?: number): Promise<Fee[]>;
   getFee(id: number): Promise<Fee | undefined>;
   getFeeByCode(code: string): Promise<Fee | undefined>;
   createFee(data: InsertFee): Promise<Fee>;
   updateFee(id: number, data: Partial<InsertFee>): Promise<Fee | undefined>;
   deleteFee(id: number): Promise<boolean>;
 
-  getEntriesByMonth(month: string): Promise<AmortizationEntryWithDetails[]>;
+  getEntriesByMonth(month: string, entityId?: number): Promise<AmortizationEntryWithDetails[]>;
   getEntriesByFeeId(feeId: number): Promise<AmortizationEntry[]>;
   createEntry(data: InsertAmortizationEntry): Promise<AmortizationEntry>;
   deleteEntriesByFeeId(feeId: number): Promise<void>;
   markEntryVoucherGenerated(entryId: number): Promise<void>;
 
-  getVouchersByMonth(month: string): Promise<Voucher[]>;
+  getVouchersByMonth(month: string, entityId?: number): Promise<Voucher[]>;
   createVoucher(data: InsertVoucher): Promise<Voucher>;
   getVoucherCount(): Promise<number>;
 
@@ -46,6 +53,30 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  async getEntities(): Promise<Entity[]> {
+    return db.select().from(entities).orderBy(entities.code);
+  }
+
+  async getEntity(id: number): Promise<Entity | undefined> {
+    const [e] = await db.select().from(entities).where(eq(entities.id, id));
+    return e;
+  }
+
+  async createEntity(data: InsertEntity): Promise<Entity> {
+    const [e] = await db.insert(entities).values(data).returning();
+    return e;
+  }
+
+  async updateEntity(id: number, data: Partial<InsertEntity>): Promise<Entity | undefined> {
+    const [e] = await db.update(entities).set(data).where(eq(entities.id, id)).returning();
+    return e;
+  }
+
+  async deleteEntity(id: number): Promise<boolean> {
+    const result = await db.delete(entities).where(eq(entities.id, id)).returning();
+    return result.length > 0;
+  }
+
   async getAccounts(): Promise<Account[]> {
     return db.select().from(accounts).orderBy(accounts.code);
   }
@@ -101,7 +132,10 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getFees(): Promise<Fee[]> {
+  async getFees(entityId?: number): Promise<Fee[]> {
+    if (entityId) {
+      return db.select().from(fees).where(eq(fees.entityId, entityId)).orderBy(desc(fees.createdAt));
+    }
     return db.select().from(fees).orderBy(desc(fees.createdAt));
   }
 
@@ -130,8 +164,8 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getEntriesByMonth(month: string): Promise<AmortizationEntryWithDetails[]> {
-    const rows = await db
+  async getEntriesByMonth(month: string, entityId?: number): Promise<AmortizationEntryWithDetails[]> {
+    let query = db
       .select({
         id: amortizationEntries.id,
         feeId: amortizationEntries.feeId,
@@ -142,14 +176,22 @@ export class DatabaseStorage implements IStorage {
         voucherGenerated: amortizationEntries.voucherGenerated,
         feeName: fees.feeName,
         feeCode: fees.feeCode,
+        entityId: fees.entityId,
         feeDebitAccountId: fees.debitAccountId,
         feeCreditAccountId: fees.creditAccountId,
       })
       .from(amortizationEntries)
       .innerJoin(fees, eq(amortizationEntries.feeId, fees.id))
-      .where(eq(amortizationEntries.month, month))
+      .where(
+        entityId
+          ? and(eq(amortizationEntries.month, month), eq(fees.entityId, entityId))
+          : eq(amortizationEntries.month, month)
+      )
       .orderBy(fees.feeCode);
 
+    const rows = await query;
+
+    const entityCache: Record<number, Entity | undefined> = {};
     const result: AmortizationEntryWithDetails[] = [];
     for (const row of rows) {
       let debitAccountName: string | undefined;
@@ -164,6 +206,9 @@ export class DatabaseStorage implements IStorage {
         const [a] = await db.select().from(accounts).where(eq(accounts.id, row.feeCreditAccountId));
         if (a) { creditAccountName = a.name; creditAccountCode = a.code; }
       }
+      if (!(row.entityId in entityCache)) {
+        entityCache[row.entityId] = await this.getEntity(row.entityId);
+      }
       result.push({
         id: row.id,
         feeId: row.feeId,
@@ -174,6 +219,8 @@ export class DatabaseStorage implements IStorage {
         voucherGenerated: row.voucherGenerated,
         feeName: row.feeName,
         feeCode: row.feeCode,
+        entityId: row.entityId,
+        entityName: entityCache[row.entityId]?.name,
         debitAccountName,
         creditAccountName,
         debitAccountCode,
@@ -200,7 +247,10 @@ export class DatabaseStorage implements IStorage {
     await db.update(amortizationEntries).set({ voucherGenerated: true }).where(eq(amortizationEntries.id, entryId));
   }
 
-  async getVouchersByMonth(month: string): Promise<Voucher[]> {
+  async getVouchersByMonth(month: string, entityId?: number): Promise<Voucher[]> {
+    if (entityId) {
+      return db.select().from(vouchers).where(and(eq(vouchers.month, month), eq(vouchers.entityId, entityId))).orderBy(vouchers.voucherNo);
+    }
     return db.select().from(vouchers).where(eq(vouchers.month, month)).orderBy(vouchers.voucherNo);
   }
 
@@ -218,6 +268,7 @@ export class DatabaseStorage implements IStorage {
     const [feeCount] = await db.select({ count: sql<number>`count(*)` }).from(fees);
     const [pendingCount] = await db.select({ count: sql<number>`count(*)` }).from(fees).where(eq(fees.amortConfigured, false));
     const [templateCount] = await db.select({ count: sql<number>`count(*)` }).from(ruleTemplates);
+    const [entityCount] = await db.select({ count: sql<number>`count(*)` }).from(entities);
 
     const monthEntries = await db.select({
       total: sql<string>`coalesce(sum(${amortizationEntries.amount}::numeric), 0)`,
@@ -231,6 +282,7 @@ export class DatabaseStorage implements IStorage {
       currentMonthAmount: monthEntries[0]?.total ?? "0",
       generatedVouchers: Number(voucherCount?.count ?? 0),
       ruleTemplateCount: Number(templateCount?.count ?? 0),
+      entityCount: Number(entityCount?.count ?? 0),
     };
   }
 }

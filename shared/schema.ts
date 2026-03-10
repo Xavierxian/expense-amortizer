@@ -1,6 +1,21 @@
 import { pgTable, text, varchar, numeric, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
+export const entities = pgTable("entities", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  code: varchar("code", { length: 50 }).notNull().unique(),
+  name: varchar("name", { length: 200 }).notNull(),
+  remark: text("remark"),
+});
+
+export const insertEntitySchema = z.object({
+  code: z.string().min(1),
+  name: z.string().min(1),
+  remark: z.string().nullable().optional(),
+});
+export type InsertEntity = z.infer<typeof insertEntitySchema>;
+export type Entity = typeof entities.$inferSelect;
+
 export const accounts = pgTable("accounts", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   code: varchar("code", { length: 50 }).notNull().unique(),
@@ -39,6 +54,7 @@ export type RuleTemplate = typeof ruleTemplates.$inferSelect;
 
 export const fees = pgTable("fees", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  entityId: integer("entity_id").notNull().references(() => entities.id),
   feeCode: varchar("fee_code", { length: 100 }).notNull().unique(),
   feeName: varchar("fee_name", { length: 500 }).notNull(),
   totalAmount: numeric("total_amount", { precision: 18, scale: 2 }).notNull(),
@@ -55,6 +71,7 @@ export const fees = pgTable("fees", {
 });
 
 export const insertFeeSchema = z.object({
+  entityId: z.number(),
   feeCode: z.string().min(1),
   feeName: z.string().min(1),
   totalAmount: z.string(),
@@ -94,6 +111,7 @@ export type AmortizationEntry = typeof amortizationEntries.$inferSelect;
 
 export const vouchers = pgTable("vouchers", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  entityId: integer("entity_id").notNull().references(() => entities.id),
   voucherNo: varchar("voucher_no", { length: 50 }).notNull().unique(),
   voucherDate: varchar("voucher_date", { length: 10 }).notNull(),
   month: varchar("month", { length: 7 }).notNull(),
@@ -109,6 +127,7 @@ export const vouchers = pgTable("vouchers", {
 });
 
 export const insertVoucherSchema = z.object({
+  entityId: z.number(),
   voucherNo: z.string(),
   voucherDate: z.string(),
   month: z.string(),
@@ -127,6 +146,8 @@ export type Voucher = typeof vouchers.$inferSelect;
 export type AmortizationEntryWithDetails = AmortizationEntry & {
   feeName: string;
   feeCode: string;
+  entityId: number;
+  entityName?: string;
   debitAccountName?: string;
   creditAccountName?: string;
   debitAccountCode?: string;
@@ -139,4 +160,5 @@ export type DashboardStats = {
   currentMonthAmount: string;
   generatedVouchers: number;
   ruleTemplateCount: number;
+  entityCount: number;
 };

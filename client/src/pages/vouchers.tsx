@@ -7,11 +7,14 @@ import { Input } from "@/components/ui/input";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { FileText, Sparkles, Copy, Check } from "lucide-react";
-import type { Voucher } from "@shared/schema";
+import type { Voucher, Entity } from "@shared/schema";
 
 function getCurrentMonth(): string {
   const now = new Date();
@@ -21,15 +24,27 @@ function getCurrentMonth(): string {
 export default function VouchersPage() {
   const { toast } = useToast();
   const [month, setMonth] = useState(getCurrentMonth());
+  const [selectedEntityId, setSelectedEntityId] = useState<string>("");
   const [copied, setCopied] = useState(false);
 
+  const { data: entityList = [] } = useQuery<Entity[]>({
+    queryKey: ["/api/entities"],
+  });
+
+  const entityParam = selectedEntityId && selectedEntityId !== "all" ? `&entityId=${selectedEntityId}` : "";
   const { data: voucherList = [], isLoading } = useQuery<Voucher[]>({
-    queryKey: ["/api/vouchers", `?month=${month}`],
+    queryKey: ["/api/vouchers", `?month=${month}${entityParam}`],
   });
 
   const generateMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/generate-voucher", { month });
+      if (!selectedEntityId || selectedEntityId === "all") {
+        throw new Error("请选择具体主体后再生成凭证");
+      }
+      const res = await apiRequest("POST", "/api/generate-voucher", {
+        month,
+        entityId: Number(selectedEntityId),
+      });
       return res.json();
     },
     onSuccess: (data) => {
@@ -64,14 +79,29 @@ export default function VouchersPage() {
 
   const totalAmount = voucherList.reduce((sum, v) => sum + Number(v.amount), 0);
 
+  const selectedEntityName = selectedEntityId && selectedEntityId !== "all"
+    ? entityList.find(e => e.id === Number(selectedEntityId))?.name
+    : "全部主体";
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold" data-testid="text-vouchers-title">凭证管理</h1>
-          <p className="text-muted-foreground text-sm mt-1">批量生成财务凭证，导出 JSON 对接财务系统</p>
+          <p className="text-muted-foreground text-sm mt-1">按主体批量生成财务凭证，导出 JSON 对接财务系统</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Select value={selectedEntityId} onValueChange={setSelectedEntityId}>
+            <SelectTrigger className="w-40" data-testid="select-voucher-entity">
+              <SelectValue placeholder="选择主体" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部主体</SelectItem>
+              {entityList.map((e) => (
+                <SelectItem key={e.id} value={e.id.toString()}>{e.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Label className="text-sm text-muted-foreground whitespace-nowrap">月份:</Label>
           <Input
             type="month"
@@ -82,7 +112,7 @@ export default function VouchersPage() {
           />
           <Button
             onClick={() => generateMutation.mutate()}
-            disabled={generateMutation.isPending}
+            disabled={generateMutation.isPending || !selectedEntityId || selectedEntityId === "all"}
             data-testid="button-generate-voucher"
           >
             <Sparkles className="w-4 h-4 mr-1" />
@@ -97,12 +127,20 @@ export default function VouchersPage() {
         </div>
       </div>
 
+      {(!selectedEntityId || selectedEntityId === "all") && (
+        <Card className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30">
+          <CardContent className="py-3 text-sm text-amber-800 dark:text-amber-200">
+            请选择具体主体后再生成凭证。查看凭证时可选择"全部主体"。
+          </CardContent>
+        </Card>
+      )}
+
       {totalAmount > 0 && (
         <Card className="bg-primary/5 border-primary/20">
           <CardContent className="py-4">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="text-sm text-muted-foreground">
-                {month} 凭证合计 ({voucherList.length} 张)
+                {selectedEntityName} · {month} 凭证合计 ({voucherList.length} 张)
               </div>
               <div className="text-xl font-bold" data-testid="text-voucher-total">
                 ¥{totalAmount.toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
@@ -125,7 +163,7 @@ export default function VouchersPage() {
             <div className="text-center py-12 text-muted-foreground">
               <FileText className="w-12 h-12 mx-auto mb-3 opacity-40" />
               <p className="text-sm">该月份暂无凭证</p>
-              <p className="text-xs mt-1">点击上方「批量生成凭证」按钮为当月摊销数据生成凭证</p>
+              <p className="text-xs mt-1">选择主体后点击「批量生成凭证」为当月摊销数据生成凭证</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -173,7 +211,7 @@ export default function VouchersPage() {
             <div className="p-3 rounded-md bg-muted font-mono text-sm">
               <p className="text-muted-foreground mb-1">GET 请求获取当月凭证 JSON 数据:</p>
               <p className="break-all" data-testid="text-api-url">
-                {window.location.origin}/api/vouchers?month={month}
+                {window.location.origin}/api/vouchers?month={month}{entityParam ? entityParam : ""}
               </p>
             </div>
           </CardContent>
