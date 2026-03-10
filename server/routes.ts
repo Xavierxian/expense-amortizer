@@ -174,6 +174,22 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
+  app.get("/api/import-template", (_req, res) => {
+    const wb = XLSX.utils.book_new();
+    const header = ["费用编号", "费用名称", "总金额", "费用发生日期", "来源单据号", "来源系统"];
+    const sample = [
+      ["FY-2026-001", "办公室装修费", 120000, "2026-01-15", "BX-20260115-001", "费控平台"],
+      ["FY-2026-002", "年度软件许可费", 36000, "2026-02-01", "BX-20260201-003", "费控平台"],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet([header, ...sample]);
+    ws["!cols"] = [{ wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 20 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws, "费用导入模板");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    res.setHeader("Content-Disposition", 'attachment; filename="fee_import_template.xlsx"');
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.send(buf);
+  });
+
   app.post("/api/import-fee", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });

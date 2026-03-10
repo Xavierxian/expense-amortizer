@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Plus, Trash2, Search, FileSpreadsheet, Settings2, ArrowRight } from "lucide-react";
+import { Upload, Plus, Trash2, Search, FileSpreadsheet, Settings2, ArrowRight, Download } from "lucide-react";
 import type { Fee, InsertFee, Account, Entity } from "@shared/schema";
 
 function addMonthsFn(yearMonth: string, count: number): string {
@@ -212,6 +212,19 @@ export default function FeesPage() {
             }}
             data-testid="input-file-upload"
           />
+          <Button
+            variant="outline"
+            onClick={() => {
+              const a = document.createElement("a");
+              a.href = "/api/import-template";
+              a.download = "fee_import_template.xlsx";
+              a.click();
+            }}
+            data-testid="button-download-template"
+          >
+            <Download className="w-4 h-4 mr-1" />
+            下载模板
+          </Button>
           <Button
             onClick={() => {
               if (!importEntityId) {
