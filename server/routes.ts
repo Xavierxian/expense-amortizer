@@ -1,16 +1,277 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { insertAccountSchema, insertFeeSchema, insertAmortizationRuleSchema } from "@shared/schema";
+import multer from "multer";
+import * as XLSX from "xlsx";
+
+const upload = multer({ storage: multer.memoryStorage() });
+
+function getCurrentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getMonthsBetween(start: string, end: string): string[] {
+  const months: string[] = [];
+  const [sy, sm] = start.split("-").map(Number);
+  const [ey, em] = end.split("-").map(Number);
+  let y = sy, m = sm;
+  while (y < ey || (y === ey && m <= em)) {
+    months.push(`${y}-${String(m).padStart(2, "0")}`);
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return months;
+}
+
+function calculateAmortization(totalAmount: number, months: string[]): { month: string; amount: number }[] {
+  const count = months.length;
+  if (count === 0) return [];
+  const perMonth = Math.floor(totalAmount * 100 / count) / 100;
+  const entries = months.map((month, i) => ({
+    month,
+    amount: i < count - 1 ? perMonth : Math.round((totalAmount - perMonth * (count - 1)) * 100) / 100,
+  }));
+  return entries;
+}
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
 
-  // use storage to perform CRUD operations on the storage interface
-  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+  app.get("/api/dashboard", async (_req, res) => {
+    const currentMonth = getCurrentMonth();
+    const stats = await storage.getDashboardStats(currentMonth);
+    res.json(stats);
+  });
+
+  app.get("/api/accounts", async (_req, res) => {
+    const list = await storage.getAccounts();
+    res.json(list);
+  });
+
+  app.post("/api/accounts", async (req, res) => {
+    const parsed = insertAccountSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    try {
+      const account = await storage.createAccount(parsed.data);
+      res.json(account);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.put("/api/accounts/:id", async (req, res) => {
+    const account = await storage.updateAccount(Number(req.params.id), req.body);
+    if (!account) return res.status(404).json({ message: "Not found" });
+    res.json(account);
+  });
+
+  app.delete("/api/accounts/:id", async (req, res) => {
+    const ok = await storage.deleteAccount(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Not found" });
+    res.json({ success: true });
+  });
+
+  app.get("/api/fees", async (_req, res) => {
+    const list = await storage.getFees();
+    res.json(list);
+  });
+
+  app.post("/api/fees", async (req, res) => {
+    const parsed = insertFeeSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    try {
+      const fee = await storage.createFee(parsed.data);
+      res.json(fee);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/fees/:id", async (req, res) => {
+    const id = Number(req.params.id);
+    await storage.deleteEntriesByFeeId(id);
+    const rule = await storage.getRuleByFeeId(id);
+    if (rule) await storage.deleteRule(rule.id);
+    const ok = await storage.deleteFee(id);
+    if (!ok) return res.status(404).json({ message: "Not found" });
+    res.json({ success: true });
+  });
+
+  app.post("/api/import-fee", upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+
+      let imported = 0;
+      let skipped = 0;
+
+      for (const row of rows) {
+        const feeCode = String(row["费用编号"] || row["feeCode"] || row["fee_code"] || "").trim();
+        const feeName = String(row["费用名称"] || row["feeName"] || row["fee_name"] || "").trim();
+        const totalAmount = String(row["总金额"] || row["totalAmount"] || row["total_amount"] || "0");
+        const feeDate = String(row["费用发生日期"] || row["feeDate"] || row["fee_date"] || "").trim();
+        const sourceRef = String(row["来源单据号"] || row["sourceRef"] || row["source_ref"] || "").trim();
+        const sourceSystem = String(row["来源系统"] || row["sourceSystem"] || row["source_system"] || "").trim();
+
+        if (!feeCode || !feeName) { skipped++; continue; }
+
+        const existing = await storage.getFeeByCode(feeCode);
+        if (existing) { skipped++; continue; }
+
+        await storage.createFee({
+          feeCode,
+          feeName,
+          totalAmount,
+          feeDate,
+          sourceRef: sourceRef || null,
+          sourceSystem: sourceSystem || null,
+          hasRule: false,
+        });
+        imported++;
+      }
+
+      res.json({ imported, skipped, total: rows.length });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/rules/:feeId", async (req, res) => {
+    const rule = await storage.getRuleByFeeId(Number(req.params.feeId));
+    res.json(rule || null);
+  });
+
+  app.post("/api/set-amort-rule", async (req, res) => {
+    const parsed = insertAmortizationRuleSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+
+    try {
+      const { feeId, startMonth, endMonth, method, debitAccountId, creditAccountId, remark } = parsed.data;
+      const fee = await storage.getFee(feeId);
+      if (!fee) return res.status(404).json({ message: "Fee not found" });
+
+      if (startMonth > endMonth) {
+        return res.status(400).json({ message: "Start month must be before or equal to end month" });
+      }
+
+      const existingRule = await storage.getRuleByFeeId(feeId);
+      let rule;
+
+      if (existingRule) {
+        await storage.deleteEntriesByFeeId(feeId);
+        rule = await storage.updateRule(existingRule.id, {
+          startMonth, endMonth, method,
+          debitAccountId: debitAccountId || null,
+          creditAccountId: creditAccountId || null,
+          remark: remark || null,
+        });
+      } else {
+        rule = await storage.createRule({
+          feeId, startMonth, endMonth, method,
+          debitAccountId: debitAccountId || null,
+          creditAccountId: creditAccountId || null,
+          remark: remark || null,
+        });
+      }
+
+      const months = getMonthsBetween(startMonth, endMonth);
+      const totalAmount = parseFloat(fee.totalAmount);
+      const amortEntries = calculateAmortization(totalAmount, months);
+
+      let cumulative = 0;
+      for (const entry of amortEntries) {
+        cumulative += entry.amount;
+        const remaining = Math.round((totalAmount - cumulative) * 100) / 100;
+        await storage.createEntry({
+          feeId,
+          ruleId: rule!.id,
+          month: entry.month,
+          amount: entry.amount.toFixed(2),
+          cumulativeAmount: cumulative.toFixed(2),
+          remainingAmount: remaining.toFixed(2),
+          voucherGenerated: false,
+        });
+      }
+
+      await storage.updateFee(feeId, { hasRule: true });
+      res.json({ success: true, rule, entriesCount: amortEntries.length });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/amort-table", async (req, res) => {
+    const month = (req.query.month as string) || getCurrentMonth();
+    const entries = await storage.getEntriesByMonth(month);
+    res.json(entries);
+  });
+
+  app.get("/api/amort-entries/:feeId", async (req, res) => {
+    const entries = await storage.getEntriesByFeeId(Number(req.params.feeId));
+    res.json(entries);
+  });
+
+  app.post("/api/generate-voucher", async (req, res) => {
+    try {
+      const month = req.body.month || getCurrentMonth();
+      const entries = await storage.getEntriesByMonth(month);
+      const ungenerated = entries.filter(e => !e.voucherGenerated);
+
+      if (ungenerated.length === 0) {
+        return res.json({ generated: 0, message: "No entries to generate vouchers for" });
+      }
+
+      const withoutAccounts = ungenerated.filter(e => !e.debitAccountCode || !e.creditAccountCode);
+      if (withoutAccounts.length > 0) {
+        return res.status(400).json({
+          message: `${withoutAccounts.length} 条摊销记录未配置借方或贷方科目，请先完善摊销规则`,
+        });
+      }
+
+      const voucherCount = await storage.getVoucherCount();
+      let counter = voucherCount + 1;
+      const generated: any[] = [];
+
+      for (const entry of ungenerated) {
+        const voucherNo = `PZ-${month.replace("-", "")}-${String(counter).padStart(4, "0")}`;
+        const voucherDate = `${month}-01`;
+
+        const voucher = await storage.createVoucher({
+          voucherNo,
+          voucherDate,
+          month,
+          summary: `${entry.feeName} ${month} 摊销`,
+          debitAccountCode: entry.debitAccountCode || "",
+          debitAccountName: entry.debitAccountName || "",
+          creditAccountCode: entry.creditAccountCode || "",
+          creditAccountName: entry.creditAccountName || "",
+          amount: entry.amount,
+          feeId: entry.feeId,
+          entryId: entry.id,
+        });
+
+        await storage.markEntryVoucherGenerated(entry.id);
+        generated.push(voucher);
+        counter++;
+      }
+
+      res.json({ generated: generated.length, vouchers: generated });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/vouchers", async (req, res) => {
+    const month = (req.query.month as string) || getCurrentMonth();
+    const list = await storage.getVouchersByMonth(month);
+    res.json(list);
+  });
 
   return httpServer;
 }
