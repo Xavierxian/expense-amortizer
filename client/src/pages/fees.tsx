@@ -7,28 +7,61 @@ import { Input } from "@/components/ui/input";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Plus, Trash2, Search, FileSpreadsheet } from "lucide-react";
-import type { Fee, InsertFee } from "@shared/schema";
+import { Upload, Plus, Trash2, Search, FileSpreadsheet, Settings2, ArrowRight } from "lucide-react";
+import type { Fee, InsertFee, Account } from "@shared/schema";
+
+function addMonths(yearMonth: string, count: number): string {
+  if (!yearMonth || count <= 0) return yearMonth;
+  const [y, m] = yearMonth.split("-").map(Number);
+  const totalMonths = y * 12 + (m - 1) + (count - 1);
+  const newY = Math.floor(totalMonths / 12);
+  const newM = (totalMonths % 12) + 1;
+  return `${newY}-${String(newM).padStart(2, "0")}`;
+}
+
+function feeeDateToMonth(feeDate: string): string {
+  if (!feeDate) return "";
+  const parts = feeDate.split("-");
+  if (parts.length >= 2) return `${parts[0]}-${parts[1].padStart(2, "0")}`;
+  return "";
+}
 
 export default function FeesPage() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [amortDialogOpen, setAmortDialogOpen] = useState(false);
+  const [selectedFee, setSelectedFee] = useState<Fee | null>(null);
   const [formData, setFormData] = useState<Partial<InsertFee>>({
     feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "",
+  });
+  const [amortForm, setAmortForm] = useState({
+    amortMonths: 12,
+    debitAccountId: "",
+    creditAccountId: "",
   });
 
   const { data: fees = [], isLoading } = useQuery<Fee[]>({
     queryKey: ["/api/fees"],
   });
+
+  const { data: accts = [] } = useQuery<Account[]>({
+    queryKey: ["/api/accounts"],
+  });
+
+  const debitAccounts = accts.filter((a) => a.type === "debit");
+  const creditAccounts = accts.filter((a) => a.type === "credit");
 
   const importMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -53,7 +86,7 @@ export default function FeesPage() {
 
   const addMutation = useMutation({
     mutationFn: async (data: Partial<InsertFee>) => {
-      const res = await apiRequest("POST", "/api/fees", { ...data, hasRule: false });
+      const res = await apiRequest("POST", "/api/fees", { ...data, amortConfigured: false });
       return res.json();
     },
     onSuccess: () => {
@@ -79,6 +112,54 @@ export default function FeesPage() {
     },
   });
 
+  const configureAmortMutation = useMutation({
+    mutationFn: async (data: { id: number; amortMonths: number; debitAccountId: number | null; creditAccountId: number | null }) => {
+      const res = await apiRequest("POST", `/api/configure-fee-amort/${data.id}`, {
+        amortMonths: data.amortMonths,
+        debitAccountId: data.debitAccountId,
+        creditAccountId: data.creditAccountId,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/fees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/amort-table"] });
+      setAmortDialogOpen(false);
+      toast({
+        title: "摊销配置成功",
+        description: `已生成 ${data.entriesCount} 期摊销明细（${data.startMonth} 至 ${data.endMonth}）`,
+      });
+    },
+    onError: (e: Error) => {
+      toast({ title: "配置失败", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const openAmortDialog = (fee: Fee) => {
+    setSelectedFee(fee);
+    setAmortForm({
+      amortMonths: fee.amortMonths || 12,
+      debitAccountId: fee.debitAccountId?.toString() || "",
+      creditAccountId: fee.creditAccountId?.toString() || "",
+    });
+    setAmortDialogOpen(true);
+  };
+
+  const handleConfirmAmort = () => {
+    if (!selectedFee) return;
+    configureAmortMutation.mutate({
+      id: selectedFee.id,
+      amortMonths: amortForm.amortMonths,
+      debitAccountId: amortForm.debitAccountId ? Number(amortForm.debitAccountId) : null,
+      creditAccountId: amortForm.creditAccountId ? Number(amortForm.creditAccountId) : null,
+    });
+  };
+
+  const selectedStartMonth = selectedFee ? feeeDateToMonth(selectedFee.feeDate) : "";
+  const selectedEndMonth = selectedStartMonth && amortForm.amortMonths > 0
+    ? addMonths(selectedStartMonth, amortForm.amortMonths) : "";
+
   const filtered = fees.filter(
     (f) =>
       f.feeCode.toLowerCase().includes(search.toLowerCase()) ||
@@ -90,7 +171,7 @@ export default function FeesPage() {
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold" data-testid="text-fees-title">费用导入</h1>
-          <p className="text-muted-foreground text-sm mt-1">管理待摊销费用明细</p>
+          <p className="text-muted-foreground text-sm mt-1">导入费用明细，配置每条费用的摊销月数</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <input
@@ -156,10 +237,10 @@ export default function FeesPage() {
                     <TableHead>费用名称</TableHead>
                     <TableHead className="text-right">总金额</TableHead>
                     <TableHead>发生日期</TableHead>
-                    <TableHead>来源单据号</TableHead>
-                    <TableHead>来源系统</TableHead>
-                    <TableHead>规则状态</TableHead>
-                    <TableHead className="w-16"></TableHead>
+                    <TableHead className="text-center">摊销月数</TableHead>
+                    <TableHead>摊销区间</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead className="w-28"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -170,25 +251,46 @@ export default function FeesPage() {
                       <TableCell className="text-right font-mono">
                         ¥{Number(fee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell>{fee.feeDate}</TableCell>
-                      <TableCell className="text-muted-foreground">{fee.sourceRef || "-"}</TableCell>
-                      <TableCell className="text-muted-foreground">{fee.sourceSystem || "-"}</TableCell>
-                      <TableCell>
-                        {fee.hasRule ? (
-                          <Badge variant="default" data-testid={`badge-rule-${fee.id}`}>已配置</Badge>
+                      <TableCell className="text-muted-foreground">{fee.feeDate}</TableCell>
+                      <TableCell className="text-center">
+                        {fee.amortMonths ? (
+                          <Badge variant="secondary">{fee.amortMonths} 月</Badge>
                         ) : (
-                          <Badge variant="secondary" data-testid={`badge-rule-${fee.id}`}>待配置</Badge>
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground font-mono">
+                        {fee.startMonth && fee.endMonth ? (
+                          <span>{fee.startMonth} ~ {fee.endMonth}</span>
+                        ) : "-"}
+                      </TableCell>
+                      <TableCell>
+                        {fee.amortConfigured ? (
+                          <Badge variant="default" data-testid={`badge-status-${fee.id}`}>已确认</Badge>
+                        ) : (
+                          <Badge variant="secondary" data-testid={`badge-status-${fee.id}`}>待确认</Badge>
                         )}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => deleteMutation.mutate(fee.id)}
-                          data-testid={`button-delete-fee-${fee.id}`}
-                        >
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant={fee.amortConfigured ? "secondary" : "default"}
+                            onClick={() => openAmortDialog(fee)}
+                            data-testid={`button-configure-${fee.id}`}
+                          >
+                            <Settings2 className="w-3.5 h-3.5 mr-1" />
+                            {fee.amortConfigured ? "修改" : "配置"}
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => deleteMutation.mutate(fee.id)}
+                            data-testid={`button-delete-fee-${fee.id}`}
+                          >
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -203,67 +305,132 @@ export default function FeesPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>手动添加费用</DialogTitle>
+            <DialogDescription>填写费用基本信息，添加后可在列表中配置摊销月数</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
               <Label>费用编号 *</Label>
-              <Input
-                value={formData.feeCode || ""}
-                onChange={(e) => setFormData({ ...formData, feeCode: e.target.value })}
-                data-testid="input-fee-code"
-              />
+              <Input value={formData.feeCode || ""} onChange={(e) => setFormData({ ...formData, feeCode: e.target.value })} data-testid="input-fee-code" />
             </div>
             <div>
               <Label>费用名称 *</Label>
-              <Input
-                value={formData.feeName || ""}
-                onChange={(e) => setFormData({ ...formData, feeName: e.target.value })}
-                data-testid="input-fee-name"
-              />
+              <Input value={formData.feeName || ""} onChange={(e) => setFormData({ ...formData, feeName: e.target.value })} data-testid="input-fee-name" />
             </div>
             <div>
               <Label>总金额 *</Label>
-              <Input
-                type="number"
-                value={formData.totalAmount || ""}
-                onChange={(e) => setFormData({ ...formData, totalAmount: e.target.value })}
-                data-testid="input-fee-amount"
-              />
+              <Input type="number" value={formData.totalAmount || ""} onChange={(e) => setFormData({ ...formData, totalAmount: e.target.value })} data-testid="input-fee-amount" />
             </div>
             <div>
-              <Label>费用发生日期</Label>
-              <Input
-                type="date"
-                value={formData.feeDate || ""}
-                onChange={(e) => setFormData({ ...formData, feeDate: e.target.value })}
-                data-testid="input-fee-date"
-              />
+              <Label>费用发生日期 *</Label>
+              <Input type="date" value={formData.feeDate || ""} onChange={(e) => setFormData({ ...formData, feeDate: e.target.value })} data-testid="input-fee-date" />
             </div>
             <div>
               <Label>来源单据号</Label>
-              <Input
-                value={formData.sourceRef || ""}
-                onChange={(e) => setFormData({ ...formData, sourceRef: e.target.value })}
-                data-testid="input-source-ref"
-              />
+              <Input value={formData.sourceRef || ""} onChange={(e) => setFormData({ ...formData, sourceRef: e.target.value })} data-testid="input-source-ref" />
             </div>
             <div>
               <Label>来源系统</Label>
-              <Input
-                value={formData.sourceSystem || ""}
-                onChange={(e) => setFormData({ ...formData, sourceSystem: e.target.value })}
-                data-testid="input-source-system"
-              />
+              <Input value={formData.sourceSystem || ""} onChange={(e) => setFormData({ ...formData, sourceSystem: e.target.value })} data-testid="input-source-system" />
             </div>
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setAddDialogOpen(false)} data-testid="button-cancel-add">取消</Button>
             <Button
               onClick={() => addMutation.mutate(formData)}
-              disabled={addMutation.isPending || !formData.feeCode || !formData.feeName || !formData.totalAmount}
+              disabled={addMutation.isPending || !formData.feeCode || !formData.feeName || !formData.totalAmount || !formData.feeDate}
               data-testid="button-confirm-add"
             >
               {addMutation.isPending ? "保存中..." : "保存"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={amortDialogOpen} onOpenChange={setAmortDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>摊销配置 - {selectedFee?.feeName}</DialogTitle>
+            <DialogDescription>
+              确认或修改该费用的摊销月数和科目，确认后自动从发生日期起生成摊销明细
+            </DialogDescription>
+          </DialogHeader>
+          {selectedFee && (
+            <div className="text-sm text-muted-foreground mb-1">
+              费用编号: {selectedFee.feeCode} | 总金额: ¥{Number(selectedFee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} | 发生日期: {selectedFee.feeDate}
+            </div>
+          )}
+          <div className="space-y-3">
+            <div>
+              <Label>摊销月数 *</Label>
+              <Input
+                type="number"
+                min={1}
+                max={360}
+                value={amortForm.amortMonths}
+                onChange={(e) => setAmortForm({ ...amortForm, amortMonths: Math.max(1, parseInt(e.target.value) || 1) })}
+                data-testid="input-amort-months"
+              />
+              <p className="text-xs text-muted-foreground mt-1">从规则模板自动带入，可根据实际情况修改</p>
+            </div>
+            {selectedStartMonth && selectedEndMonth && (
+              <div className="flex items-center gap-2 p-3 rounded-md bg-muted text-sm">
+                <span className="font-medium">摊销区间:</span>
+                <span className="font-mono">{selectedStartMonth}</span>
+                <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                <span className="font-mono">{selectedEndMonth}</span>
+                <span className="text-muted-foreground">（共 {amortForm.amortMonths} 期）</span>
+                {selectedFee && (
+                  <span className="text-muted-foreground ml-auto">
+                    每期约 ¥{(Number(selectedFee.totalAmount) / amortForm.amortMonths).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                )}
+              </div>
+            )}
+            <div>
+              <Label>借方科目</Label>
+              <Select
+                value={amortForm.debitAccountId}
+                onValueChange={(v) => setAmortForm({ ...amortForm, debitAccountId: v })}
+              >
+                <SelectTrigger data-testid="select-debit-account">
+                  <SelectValue placeholder="选择借方科目" />
+                </SelectTrigger>
+                <SelectContent>
+                  {debitAccounts.map((a) => (
+                    <SelectItem key={a.id} value={a.id.toString()}>
+                      {a.code} - {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>贷方科目</Label>
+              <Select
+                value={amortForm.creditAccountId}
+                onValueChange={(v) => setAmortForm({ ...amortForm, creditAccountId: v })}
+              >
+                <SelectTrigger data-testid="select-credit-account">
+                  <SelectValue placeholder="选择贷方科目" />
+                </SelectTrigger>
+                <SelectContent>
+                  {creditAccounts.map((a) => (
+                    <SelectItem key={a.id} value={a.id.toString()}>
+                      {a.code} - {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setAmortDialogOpen(false)} data-testid="button-cancel-amort">取消</Button>
+            <Button
+              onClick={handleConfirmAmort}
+              disabled={configureAmortMutation.isPending || amortForm.amortMonths < 1}
+              data-testid="button-confirm-amort"
+            >
+              {configureAmortMutation.isPending ? "保存中..." : "确认并生成摊销明细"}
             </Button>
           </DialogFooter>
         </DialogContent>

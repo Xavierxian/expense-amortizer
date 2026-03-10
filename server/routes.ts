@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertAccountSchema, insertFeeSchema, insertAmortizationRuleSchema } from "@shared/schema";
+import { insertAccountSchema, insertFeeSchema, insertRuleTemplateSchema } from "@shared/schema";
 import multer from "multer";
 import * as XLSX from "xlsx";
 
@@ -10,6 +10,21 @@ const upload = multer({ storage: multer.memoryStorage() });
 function getCurrentMonth(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function feeeDateToMonth(feeDate: string): string {
+  if (!feeDate) return getCurrentMonth();
+  const parts = feeDate.split("-");
+  if (parts.length >= 2) return `${parts[0]}-${parts[1].padStart(2, "0")}`;
+  return getCurrentMonth();
+}
+
+function addMonths(yearMonth: string, count: number): string {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const totalMonths = y * 12 + (m - 1) + (count - 1);
+  const newY = Math.floor(totalMonths / 12);
+  const newM = (totalMonths % 12) + 1;
+  return `${newY}-${String(newM).padStart(2, "0")}`;
 }
 
 function getMonthsBetween(start: string, end: string): string[] {
@@ -29,11 +44,10 @@ function calculateAmortization(totalAmount: number, months: string[]): { month: 
   const count = months.length;
   if (count === 0) return [];
   const perMonth = Math.floor(totalAmount * 100 / count) / 100;
-  const entries = months.map((month, i) => ({
+  return months.map((month, i) => ({
     month,
     amount: i < count - 1 ? perMonth : Math.round((totalAmount - perMonth * (count - 1)) * 100) / 100,
   }));
-  return entries;
 }
 
 export async function registerRoutes(
@@ -75,6 +89,36 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
+  app.get("/api/rule-templates", async (_req, res) => {
+    const list = await storage.getRuleTemplates();
+    res.json(list);
+  });
+
+  app.post("/api/rule-templates", async (req, res) => {
+    const parsed = insertRuleTemplateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    try {
+      const t = await storage.createRuleTemplate(parsed.data);
+      res.json(t);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.put("/api/rule-templates/:id", async (req, res) => {
+    const parsed = insertRuleTemplateSchema.partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    const t = await storage.updateRuleTemplate(Number(req.params.id), parsed.data);
+    if (!t) return res.status(404).json({ message: "Not found" });
+    res.json(t);
+  });
+
+  app.delete("/api/rule-templates/:id", async (req, res) => {
+    const ok = await storage.deleteRuleTemplate(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Not found" });
+    res.json({ success: true });
+  });
+
   app.get("/api/fees", async (_req, res) => {
     const list = await storage.getFees();
     res.json(list);
@@ -94,8 +138,6 @@ export async function registerRoutes(
   app.delete("/api/fees/:id", async (req, res) => {
     const id = Number(req.params.id);
     await storage.deleteEntriesByFeeId(id);
-    const rule = await storage.getRuleByFeeId(id);
-    if (rule) await storage.deleteRule(rule.id);
     const ok = await storage.deleteFee(id);
     if (!ok) return res.status(404).json({ message: "Not found" });
     res.json({ success: true });
@@ -124,6 +166,11 @@ export async function registerRoutes(
         const existing = await storage.getFeeByCode(feeCode);
         if (existing) { skipped++; continue; }
 
+        const template = await storage.getRuleTemplateByName(feeName);
+        const startMonth = feeeDateToMonth(feeDate);
+        const amortMonths = template?.defaultMonths || null;
+        const endMonth = amortMonths ? addMonths(startMonth, amortMonths) : null;
+
         await storage.createFee({
           feeCode,
           feeName,
@@ -131,7 +178,12 @@ export async function registerRoutes(
           feeDate,
           sourceRef: sourceRef || null,
           sourceSystem: sourceSystem || null,
-          hasRule: false,
+          amortMonths,
+          startMonth,
+          endMonth,
+          debitAccountId: template?.debitAccountId || null,
+          creditAccountId: template?.creditAccountId || null,
+          amortConfigured: false,
         });
         imported++;
       }
@@ -142,43 +194,30 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/rules/:feeId", async (req, res) => {
-    const rule = await storage.getRuleByFeeId(Number(req.params.feeId));
-    res.json(rule || null);
-  });
-
-  app.post("/api/set-amort-rule", async (req, res) => {
-    const parsed = insertAmortizationRuleSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
-
+  app.post("/api/configure-fee-amort/:id", async (req, res) => {
     try {
-      const { feeId, startMonth, endMonth, method, debitAccountId, creditAccountId, remark } = parsed.data;
-      const fee = await storage.getFee(feeId);
+      const id = Number(req.params.id);
+      const fee = await storage.getFee(id);
       if (!fee) return res.status(404).json({ message: "Fee not found" });
 
-      if (startMonth > endMonth) {
-        return res.status(400).json({ message: "Start month must be before or equal to end month" });
+      const { amortMonths, debitAccountId, creditAccountId } = req.body;
+      if (!amortMonths || amortMonths < 1) {
+        return res.status(400).json({ message: "Amortization months must be at least 1" });
       }
 
-      const existingRule = await storage.getRuleByFeeId(feeId);
-      let rule;
+      const startMonth = feeeDateToMonth(fee.feeDate);
+      const endMonth = addMonths(startMonth, amortMonths);
 
-      if (existingRule) {
-        await storage.deleteEntriesByFeeId(feeId);
-        rule = await storage.updateRule(existingRule.id, {
-          startMonth, endMonth, method,
-          debitAccountId: debitAccountId || null,
-          creditAccountId: creditAccountId || null,
-          remark: remark || null,
-        });
-      } else {
-        rule = await storage.createRule({
-          feeId, startMonth, endMonth, method,
-          debitAccountId: debitAccountId || null,
-          creditAccountId: creditAccountId || null,
-          remark: remark || null,
-        });
-      }
+      await storage.deleteEntriesByFeeId(id);
+
+      await storage.updateFee(id, {
+        amortMonths,
+        startMonth,
+        endMonth,
+        debitAccountId: debitAccountId || null,
+        creditAccountId: creditAccountId || null,
+        amortConfigured: true,
+      });
 
       const months = getMonthsBetween(startMonth, endMonth);
       const totalAmount = parseFloat(fee.totalAmount);
@@ -189,8 +228,7 @@ export async function registerRoutes(
         cumulative += entry.amount;
         const remaining = Math.round((totalAmount - cumulative) * 100) / 100;
         await storage.createEntry({
-          feeId,
-          ruleId: rule!.id,
+          feeId: id,
           month: entry.month,
           amount: entry.amount.toFixed(2),
           cumulativeAmount: cumulative.toFixed(2),
@@ -199,8 +237,7 @@ export async function registerRoutes(
         });
       }
 
-      await storage.updateFee(feeId, { hasRule: true });
-      res.json({ success: true, rule, entriesCount: amortEntries.length });
+      res.json({ success: true, entriesCount: amortEntries.length, startMonth, endMonth });
     } catch (e: any) {
       res.status(400).json({ message: e.message });
     }
@@ -209,11 +246,6 @@ export async function registerRoutes(
   app.get("/api/amort-table", async (req, res) => {
     const month = (req.query.month as string) || getCurrentMonth();
     const entries = await storage.getEntriesByMonth(month);
-    res.json(entries);
-  });
-
-  app.get("/api/amort-entries/:feeId", async (req, res) => {
-    const entries = await storage.getEntriesByFeeId(Number(req.params.feeId));
     res.json(entries);
   });
 
@@ -230,7 +262,7 @@ export async function registerRoutes(
       const withoutAccounts = ungenerated.filter(e => !e.debitAccountCode || !e.creditAccountCode);
       if (withoutAccounts.length > 0) {
         return res.status(400).json({
-          message: `${withoutAccounts.length} 条摊销记录未配置借方或贷方科目，请先完善摊销规则`,
+          message: `${withoutAccounts.length} 条摊销记录未配置借方或贷方科目，请先完善费用的摊销配置`,
         });
       }
 

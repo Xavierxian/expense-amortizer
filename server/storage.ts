@@ -1,10 +1,10 @@
 import { db } from "./db";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, sql, desc } from "drizzle-orm";
 import {
-  accounts, fees, amortizationRules, amortizationEntries, vouchers,
+  accounts, fees, ruleTemplates, amortizationEntries, vouchers,
   type InsertAccount, type Account,
   type InsertFee, type Fee,
-  type InsertAmortizationRule, type AmortizationRule,
+  type InsertRuleTemplate, type RuleTemplate,
   type InsertAmortizationEntry, type AmortizationEntry,
   type InsertVoucher, type Voucher,
   type AmortizationEntryWithDetails,
@@ -18,17 +18,19 @@ export interface IStorage {
   updateAccount(id: number, data: Partial<InsertAccount>): Promise<Account | undefined>;
   deleteAccount(id: number): Promise<boolean>;
 
+  getRuleTemplates(): Promise<RuleTemplate[]>;
+  getRuleTemplate(id: number): Promise<RuleTemplate | undefined>;
+  getRuleTemplateByName(name: string): Promise<RuleTemplate | undefined>;
+  createRuleTemplate(data: InsertRuleTemplate): Promise<RuleTemplate>;
+  updateRuleTemplate(id: number, data: Partial<InsertRuleTemplate>): Promise<RuleTemplate | undefined>;
+  deleteRuleTemplate(id: number): Promise<boolean>;
+
   getFees(): Promise<Fee[]>;
   getFee(id: number): Promise<Fee | undefined>;
   getFeeByCode(code: string): Promise<Fee | undefined>;
   createFee(data: InsertFee): Promise<Fee>;
   updateFee(id: number, data: Partial<InsertFee>): Promise<Fee | undefined>;
   deleteFee(id: number): Promise<boolean>;
-
-  getRuleByFeeId(feeId: number): Promise<AmortizationRule | undefined>;
-  createRule(data: InsertAmortizationRule): Promise<AmortizationRule>;
-  updateRule(id: number, data: Partial<InsertAmortizationRule>): Promise<AmortizationRule | undefined>;
-  deleteRule(id: number): Promise<boolean>;
 
   getEntriesByMonth(month: string): Promise<AmortizationEntryWithDetails[]>;
   getEntriesByFeeId(feeId: number): Promise<AmortizationEntry[]>;
@@ -68,6 +70,37 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
+  async getRuleTemplates(): Promise<RuleTemplate[]> {
+    return db.select().from(ruleTemplates).orderBy(ruleTemplates.name);
+  }
+
+  async getRuleTemplate(id: number): Promise<RuleTemplate | undefined> {
+    const [t] = await db.select().from(ruleTemplates).where(eq(ruleTemplates.id, id));
+    return t;
+  }
+
+  async getRuleTemplateByName(name: string): Promise<RuleTemplate | undefined> {
+    const all = await db.select().from(ruleTemplates);
+    const matches = all.filter(t => name.includes(t.name));
+    if (matches.length === 0) return undefined;
+    return matches.reduce((best, t) => t.name.length > best.name.length ? t : best);
+  }
+
+  async createRuleTemplate(data: InsertRuleTemplate): Promise<RuleTemplate> {
+    const [t] = await db.insert(ruleTemplates).values(data).returning();
+    return t;
+  }
+
+  async updateRuleTemplate(id: number, data: Partial<InsertRuleTemplate>): Promise<RuleTemplate | undefined> {
+    const [t] = await db.update(ruleTemplates).set(data).where(eq(ruleTemplates.id, id)).returning();
+    return t;
+  }
+
+  async deleteRuleTemplate(id: number): Promise<boolean> {
+    const result = await db.delete(ruleTemplates).where(eq(ruleTemplates.id, id)).returning();
+    return result.length > 0;
+  }
+
   async getFees(): Promise<Fee[]> {
     return db.select().from(fees).orderBy(desc(fees.createdAt));
   }
@@ -97,32 +130,11 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getRuleByFeeId(feeId: number): Promise<AmortizationRule | undefined> {
-    const [rule] = await db.select().from(amortizationRules).where(eq(amortizationRules.feeId, feeId));
-    return rule;
-  }
-
-  async createRule(data: InsertAmortizationRule): Promise<AmortizationRule> {
-    const [rule] = await db.insert(amortizationRules).values(data).returning();
-    return rule;
-  }
-
-  async updateRule(id: number, data: Partial<InsertAmortizationRule>): Promise<AmortizationRule | undefined> {
-    const [rule] = await db.update(amortizationRules).set(data).where(eq(amortizationRules.id, id)).returning();
-    return rule;
-  }
-
-  async deleteRule(id: number): Promise<boolean> {
-    const result = await db.delete(amortizationRules).where(eq(amortizationRules.id, id)).returning();
-    return result.length > 0;
-  }
-
   async getEntriesByMonth(month: string): Promise<AmortizationEntryWithDetails[]> {
     const rows = await db
       .select({
         id: amortizationEntries.id,
         feeId: amortizationEntries.feeId,
-        ruleId: amortizationEntries.ruleId,
         month: amortizationEntries.month,
         amount: amortizationEntries.amount,
         cumulativeAmount: amortizationEntries.cumulativeAmount,
@@ -130,6 +142,8 @@ export class DatabaseStorage implements IStorage {
         voucherGenerated: amortizationEntries.voucherGenerated,
         feeName: fees.feeName,
         feeCode: fees.feeCode,
+        feeDebitAccountId: fees.debitAccountId,
+        feeCreditAccountId: fees.creditAccountId,
       })
       .from(amortizationEntries)
       .innerJoin(fees, eq(amortizationEntries.feeId, fees.id))
@@ -138,21 +152,28 @@ export class DatabaseStorage implements IStorage {
 
     const result: AmortizationEntryWithDetails[] = [];
     for (const row of rows) {
-      const rule = await db.select().from(amortizationRules).where(eq(amortizationRules.id, row.ruleId));
       let debitAccountName: string | undefined;
       let creditAccountName: string | undefined;
       let debitAccountCode: string | undefined;
       let creditAccountCode: string | undefined;
-      if (rule[0]?.debitAccountId) {
-        const [a] = await db.select().from(accounts).where(eq(accounts.id, rule[0].debitAccountId));
+      if (row.feeDebitAccountId) {
+        const [a] = await db.select().from(accounts).where(eq(accounts.id, row.feeDebitAccountId));
         if (a) { debitAccountName = a.name; debitAccountCode = a.code; }
       }
-      if (rule[0]?.creditAccountId) {
-        const [a] = await db.select().from(accounts).where(eq(accounts.id, rule[0].creditAccountId));
+      if (row.feeCreditAccountId) {
+        const [a] = await db.select().from(accounts).where(eq(accounts.id, row.feeCreditAccountId));
         if (a) { creditAccountName = a.name; creditAccountCode = a.code; }
       }
       result.push({
-        ...row,
+        id: row.id,
+        feeId: row.feeId,
+        month: row.month,
+        amount: row.amount,
+        cumulativeAmount: row.cumulativeAmount,
+        remainingAmount: row.remainingAmount,
+        voucherGenerated: row.voucherGenerated,
+        feeName: row.feeName,
+        feeCode: row.feeCode,
         debitAccountName,
         creditAccountName,
         debitAccountCode,
@@ -195,7 +216,8 @@ export class DatabaseStorage implements IStorage {
 
   async getDashboardStats(currentMonth: string): Promise<DashboardStats> {
     const [feeCount] = await db.select({ count: sql<number>`count(*)` }).from(fees);
-    const [pendingCount] = await db.select({ count: sql<number>`count(*)` }).from(fees).where(eq(fees.hasRule, false));
+    const [pendingCount] = await db.select({ count: sql<number>`count(*)` }).from(fees).where(eq(fees.amortConfigured, false));
+    const [templateCount] = await db.select({ count: sql<number>`count(*)` }).from(ruleTemplates);
 
     const monthEntries = await db.select({
       total: sql<string>`coalesce(sum(${amortizationEntries.amount}::numeric), 0)`,
@@ -205,9 +227,10 @@ export class DatabaseStorage implements IStorage {
 
     return {
       totalFees: Number(feeCount?.count ?? 0),
-      pendingRules: Number(pendingCount?.count ?? 0),
+      pendingAmort: Number(pendingCount?.count ?? 0),
       currentMonthAmount: monthEntries[0]?.total ?? "0",
       generatedVouchers: Number(voucherCount?.count ?? 0),
+      ruleTemplateCount: Number(templateCount?.count ?? 0),
     };
   }
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,53 +13,25 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Settings2, Search, CalendarDays, ArrowRight } from "lucide-react";
-import type { Fee, Account, AmortizationRule } from "@shared/schema";
-
-function feeeDateToMonth(feeDate: string): string {
-  if (!feeDate) return "";
-  const parts = feeDate.split("-");
-  if (parts.length >= 2) return `${parts[0]}-${parts[1].padStart(2, "0")}`;
-  return "";
-}
-
-function addMonths(yearMonth: string, count: number): string {
-  if (!yearMonth || count <= 0) return yearMonth;
-  const [y, m] = yearMonth.split("-").map(Number);
-  const totalMonths = y * 12 + (m - 1) + (count - 1);
-  const newY = Math.floor(totalMonths / 12);
-  const newM = (totalMonths % 12) + 1;
-  return `${newY}-${String(newM).padStart(2, "0")}`;
-}
-
-function monthDiff(start: string, end: string): number {
-  if (!start || !end) return 0;
-  const [sy, sm] = start.split("-").map(Number);
-  const [ey, em] = end.split("-").map(Number);
-  return (ey - sy) * 12 + (em - sm) + 1;
-}
+import { Plus, Pencil, Trash2, Layers } from "lucide-react";
+import type { RuleTemplate, Account } from "@shared/schema";
 
 export default function RulesPage() {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [selectedFee, setSelectedFee] = useState<Fee | null>(null);
-  const [search, setSearch] = useState("");
-  const [ruleForm, setRuleForm] = useState({
-    startMonth: "", periods: 12, method: "monthly",
+  const [editing, setEditing] = useState<RuleTemplate | null>(null);
+  const [formData, setFormData] = useState({
+    name: "", defaultMonths: 12, method: "monthly",
     debitAccountId: "", creditAccountId: "", remark: "",
   });
 
-  const endMonth = ruleForm.startMonth && ruleForm.periods > 0
-    ? addMonths(ruleForm.startMonth, ruleForm.periods)
-    : "";
-
-  const { data: fees = [], isLoading: feesLoading } = useQuery<Fee[]>({
-    queryKey: ["/api/fees"],
+  const { data: templates = [], isLoading } = useQuery<RuleTemplate[]>({
+    queryKey: ["/api/rule-templates"],
   });
 
   const { data: accts = [] } = useQuery<Account[]>({
@@ -69,156 +41,136 @@ export default function RulesPage() {
   const debitAccounts = accts.filter((a) => a.type === "debit");
   const creditAccounts = accts.filter((a) => a.type === "credit");
 
-  const setRuleMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/set-amort-rule", data);
-      return res.json();
+  const saveMutation = useMutation({
+    mutationFn: async (data: { id?: number; payload: any }) => {
+      if (data.id) {
+        const res = await apiRequest("PUT", `/api/rule-templates/${data.id}`, data.payload);
+        return res.json();
+      } else {
+        const res = await apiRequest("POST", "/api/rule-templates", data.payload);
+        return res.json();
+      }
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/fees"] });
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/rule-templates"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/amort-table"] });
       setDialogOpen(false);
-      toast({
-        title: "规则设置成功",
-        description: `已生成 ${data.entriesCount} 期摊销明细（${data.rule?.startMonth} 至 ${data.rule?.endMonth}）`,
-      });
+      setEditing(null);
+      toast({ title: "保存成功" });
     },
     onError: (e: Error) => {
-      toast({ title: "设置失败", description: e.message, variant: "destructive" });
+      toast({ title: "保存失败", description: e.message, variant: "destructive" });
     },
   });
 
-  const openRuleDialog = async (fee: Fee) => {
-    setSelectedFee(fee);
-    const derivedStart = feeeDateToMonth(fee.feeDate);
-    try {
-      const res = await fetch(`/api/rules/${fee.id}`);
-      const rule: AmortizationRule | null = await res.json();
-      if (rule) {
-        setRuleForm({
-          startMonth: rule.startMonth,
-          periods: monthDiff(rule.startMonth, rule.endMonth),
-          method: rule.method,
-          debitAccountId: rule.debitAccountId?.toString() || "",
-          creditAccountId: rule.creditAccountId?.toString() || "",
-          remark: rule.remark || "",
-        });
-      } else {
-        setRuleForm({
-          startMonth: derivedStart,
-          periods: 12,
-          method: "monthly",
-          debitAccountId: "", creditAccountId: "", remark: "",
-        });
-      }
-    } catch {
-      setRuleForm({
-        startMonth: derivedStart,
-        periods: 12,
-        method: "monthly",
-        debitAccountId: "", creditAccountId: "", remark: "",
-      });
-    }
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/rule-templates/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/rule-templates"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      toast({ title: "删除成功" });
+    },
+  });
+
+  const openAdd = () => {
+    setEditing(null);
+    setFormData({ name: "", defaultMonths: 12, method: "monthly", debitAccountId: "", creditAccountId: "", remark: "" });
     setDialogOpen(true);
   };
 
-  const handleSaveRule = () => {
-    if (!selectedFee || !ruleForm.startMonth || !endMonth) return;
-    setRuleMutation.mutate({
-      feeId: selectedFee.id,
-      startMonth: ruleForm.startMonth,
-      endMonth: endMonth,
-      method: ruleForm.method,
-      debitAccountId: ruleForm.debitAccountId ? Number(ruleForm.debitAccountId) : null,
-      creditAccountId: ruleForm.creditAccountId ? Number(ruleForm.creditAccountId) : null,
-      remark: ruleForm.remark || null,
+  const openEdit = (t: RuleTemplate) => {
+    setEditing(t);
+    setFormData({
+      name: t.name,
+      defaultMonths: t.defaultMonths,
+      method: t.method,
+      debitAccountId: t.debitAccountId?.toString() || "",
+      creditAccountId: t.creditAccountId?.toString() || "",
+      remark: t.remark || "",
     });
+    setDialogOpen(true);
   };
 
-  const filtered = fees.filter(
-    (f) =>
-      f.feeCode.toLowerCase().includes(search.toLowerCase()) ||
-      f.feeName.toLowerCase().includes(search.toLowerCase())
-  );
+  const handleSave = () => {
+    const payload = {
+      name: formData.name,
+      defaultMonths: formData.defaultMonths,
+      method: formData.method,
+      debitAccountId: formData.debitAccountId ? Number(formData.debitAccountId) : null,
+      creditAccountId: formData.creditAccountId ? Number(formData.creditAccountId) : null,
+      remark: formData.remark || null,
+    };
+    saveMutation.mutate({ id: editing?.id, payload });
+  };
+
+  const getAccountName = (id: number | null) => {
+    if (!id) return "-";
+    const acct = accts.find(a => a.id === id);
+    return acct ? `${acct.code} ${acct.name}` : "-";
+  };
 
   return (
     <div className="p-6 space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold" data-testid="text-rules-title">摊销规则配置</h1>
-        <p className="text-muted-foreground text-sm mt-1">根据每条费用的发生日期设置摊销期数和科目</p>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold" data-testid="text-rules-title">摊销规则配置</h1>
+          <p className="text-muted-foreground text-sm mt-1">按费用类别定义默认摊销月数和科目，导入费用时自动匹配</p>
+        </div>
+        <Button onClick={openAdd} data-testid="button-add-template">
+          <Plus className="w-4 h-4 mr-1" />
+          新增规则
+        </Button>
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <CardTitle className="text-base">费用列表</CardTitle>
-            <div className="relative w-64">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="搜索费用..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8"
-                data-testid="input-search-rules"
-              />
-            </div>
-          </div>
+        <CardHeader>
+          <CardTitle className="text-base">规则模板列表</CardTitle>
         </CardHeader>
         <CardContent>
-          {feesLoading ? (
+          {isLoading ? (
             <div className="space-y-2">
               {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
             </div>
-          ) : filtered.length === 0 ? (
+          ) : templates.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              <Settings2 className="w-12 h-12 mx-auto mb-3 opacity-40" />
-              <p className="text-sm">暂无费用</p>
-              <p className="text-xs mt-1">请先在费用导入页面导入费用数据</p>
+              <Layers className="w-12 h-12 mx-auto mb-3 opacity-40" />
+              <p className="text-sm">暂无规则模板</p>
+              <p className="text-xs mt-1">点击上方按钮添加费用类别的摊销规则</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>费用编号</TableHead>
-                    <TableHead>费用名称</TableHead>
-                    <TableHead>发生日期</TableHead>
-                    <TableHead className="text-right">总金额</TableHead>
-                    <TableHead>规则状态</TableHead>
-                    <TableHead className="w-24">操作</TableHead>
+                    <TableHead>费用类别名称</TableHead>
+                    <TableHead className="text-center">默认摊销月数</TableHead>
+                    <TableHead>借方科目</TableHead>
+                    <TableHead>贷方科目</TableHead>
+                    <TableHead>备注</TableHead>
+                    <TableHead className="w-24"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((fee) => (
-                    <TableRow key={fee.id} data-testid={`row-rule-${fee.id}`}>
-                      <TableCell className="font-mono text-sm">{fee.feeCode}</TableCell>
-                      <TableCell>{fee.feeName}</TableCell>
+                  {templates.map((t) => (
+                    <TableRow key={t.id} data-testid={`row-template-${t.id}`}>
+                      <TableCell className="font-medium">{t.name}</TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="secondary">{t.defaultMonths} 个月</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{getAccountName(t.debitAccountId)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{getAccountName(t.creditAccountId)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{t.remark || "-"}</TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <CalendarDays className="w-3.5 h-3.5" />
-                          {fee.feeDate || "-"}
+                        <div className="flex items-center gap-1">
+                          <Button size="icon" variant="ghost" onClick={() => openEdit(t)} data-testid={`button-edit-template-${t.id}`}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(t.id)} data-testid={`button-delete-template-${t.id}`}>
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
                         </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        ¥{Number(fee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
-                      </TableCell>
-                      <TableCell>
-                        {fee.hasRule ? (
-                          <Badge variant="default">已配置</Badge>
-                        ) : (
-                          <Badge variant="secondary">待配置</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          variant={fee.hasRule ? "secondary" : "default"}
-                          onClick={() => openRuleDialog(fee)}
-                          data-testid={`button-set-rule-${fee.id}`}
-                        >
-                          {fee.hasRule ? "修改" : "设置"}
-                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -232,76 +184,38 @@ export default function RulesPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>
-              摊销规则 - {selectedFee?.feeName}
-            </DialogTitle>
+            <DialogTitle>{editing ? "编辑规则模板" : "新增规则模板"}</DialogTitle>
+            <DialogDescription>
+              定义费用类别的默认摊销月数和科目，导入费用时自动匹配名称中包含的关键词
+            </DialogDescription>
           </DialogHeader>
-          {selectedFee && (
-            <div className="space-y-1 text-sm text-muted-foreground mb-1">
-              <div>费用编号: {selectedFee.feeCode} | 总金额: ¥{Number(selectedFee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}</div>
-              <div className="flex items-center gap-1">
-                <CalendarDays className="w-3.5 h-3.5" />
-                费用发生日期: {selectedFee.feeDate || "未填写"}
-              </div>
-            </div>
-          )}
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>摊销起始月份 *</Label>
-                <Input
-                  type="month"
-                  value={ruleForm.startMonth}
-                  onChange={(e) => setRuleForm({ ...ruleForm, startMonth: e.target.value })}
-                  data-testid="input-start-month"
-                />
-                <p className="text-xs text-muted-foreground mt-1">默认取费用发生月份</p>
-              </div>
-              <div>
-                <Label>摊销期数（月） *</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={360}
-                  value={ruleForm.periods}
-                  onChange={(e) => setRuleForm({ ...ruleForm, periods: Math.max(1, parseInt(e.target.value) || 1) })}
-                  data-testid="input-periods"
-                />
-              </div>
-            </div>
-            {ruleForm.startMonth && endMonth && (
-              <div className="flex items-center gap-2 p-3 rounded-md bg-muted text-sm">
-                <span className="font-medium">摊销区间:</span>
-                <span className="font-mono">{ruleForm.startMonth}</span>
-                <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                <span className="font-mono">{endMonth}</span>
-                <span className="text-muted-foreground">（共 {ruleForm.periods} 期）</span>
-                {selectedFee && (
-                  <span className="text-muted-foreground ml-auto">
-                    每期约 ¥{(Number(selectedFee.totalAmount) / ruleForm.periods).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                )}
-              </div>
-            )}
             <div>
-              <Label>摊销方式</Label>
-              <Select
-                value={ruleForm.method}
-                onValueChange={(v) => setRuleForm({ ...ruleForm, method: v })}
-              >
-                <SelectTrigger data-testid="select-method">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="monthly">等额按月摊销</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>费用类别名称 *</Label>
+              <Input
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="如：房租、软件许可费、装修费"
+                data-testid="input-template-name"
+              />
+              <p className="text-xs text-muted-foreground mt-1">费用名称中包含此关键词时将自动匹配</p>
             </div>
             <div>
-              <Label>借方科目</Label>
+              <Label>默认摊销月数 *</Label>
+              <Input
+                type="number"
+                min={1}
+                max={360}
+                value={formData.defaultMonths}
+                onChange={(e) => setFormData({ ...formData, defaultMonths: Math.max(1, parseInt(e.target.value) || 1) })}
+                data-testid="input-default-months"
+              />
+            </div>
+            <div>
+              <Label>默认借方科目</Label>
               <Select
-                value={ruleForm.debitAccountId}
-                onValueChange={(v) => setRuleForm({ ...ruleForm, debitAccountId: v })}
+                value={formData.debitAccountId}
+                onValueChange={(v) => setFormData({ ...formData, debitAccountId: v })}
               >
                 <SelectTrigger data-testid="select-debit-account">
                   <SelectValue placeholder="选择借方科目" />
@@ -316,10 +230,10 @@ export default function RulesPage() {
               </Select>
             </div>
             <div>
-              <Label>贷方科目</Label>
+              <Label>默认贷方科目</Label>
               <Select
-                value={ruleForm.creditAccountId}
-                onValueChange={(v) => setRuleForm({ ...ruleForm, creditAccountId: v })}
+                value={formData.creditAccountId}
+                onValueChange={(v) => setFormData({ ...formData, creditAccountId: v })}
               >
                 <SelectTrigger data-testid="select-credit-account">
                   <SelectValue placeholder="选择贷方科目" />
@@ -336,20 +250,20 @@ export default function RulesPage() {
             <div>
               <Label>备注</Label>
               <Textarea
-                value={ruleForm.remark}
-                onChange={(e) => setRuleForm({ ...ruleForm, remark: e.target.value })}
-                data-testid="input-rule-remark"
+                value={formData.remark}
+                onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
+                data-testid="input-template-remark"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setDialogOpen(false)} data-testid="button-cancel-rule">取消</Button>
+            <Button variant="secondary" onClick={() => setDialogOpen(false)} data-testid="button-cancel-template">取消</Button>
             <Button
-              onClick={handleSaveRule}
-              disabled={setRuleMutation.isPending || !ruleForm.startMonth || ruleForm.periods < 1}
-              data-testid="button-save-rule"
+              onClick={handleSave}
+              disabled={saveMutation.isPending || !formData.name || formData.defaultMonths < 1}
+              data-testid="button-save-template"
             >
-              {setRuleMutation.isPending ? "保存中..." : "保存并生成摊销明细"}
+              {saveMutation.isPending ? "保存中..." : "保存"}
             </Button>
           </DialogFooter>
         </DialogContent>

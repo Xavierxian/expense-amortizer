@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DollarSign, FileStack, FileCheck, AlertCircle } from "lucide-react";
+import { DollarSign, FileStack, FileCheck, AlertCircle, Layers } from "lucide-react";
 import type { DashboardStats } from "@shared/schema";
 
 export default function Dashboard() {
@@ -19,10 +19,10 @@ export default function Dashboard() {
       bg: "bg-chart-1/10",
     },
     {
-      title: "待配置规则",
-      value: stats?.pendingRules ?? 0,
+      title: "待摊销配置",
+      value: stats?.pendingAmort ?? 0,
       icon: AlertCircle,
-      desc: "尚未设置摊销规则",
+      desc: "尚未确认摊销的费用",
       color: "text-chart-4",
       bg: "bg-chart-4/10",
     },
@@ -86,23 +86,23 @@ export default function Dashboard() {
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <div className="flex items-start gap-3">
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">1</span>
-              <p>在「费用导入」页面上传费控平台导出的 Excel/CSV 文件，系统自动解析并去重。</p>
+              <p>在「科目管理」中维护借方和贷方会计科目。</p>
             </div>
             <div className="flex items-start gap-3">
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">2</span>
-              <p>在「科目管理」中维护借方和贷方科目，供摊销规则引用。</p>
+              <p>在「摊销规则」中按费用类别定义默认摊销月数和科目模板（如"房租"默认12个月）。</p>
             </div>
             <div className="flex items-start gap-3">
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">3</span>
-              <p>在「摊销规则」页面为每条费用设置摊销期间、方式和科目。</p>
+              <p>在「费用导入」页面上传 Excel/CSV，系统自动匹配规则模板带入默认月数，可按实际情况修改。</p>
             </div>
             <div className="flex items-start gap-3">
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">4</span>
-              <p>在「月度摊销表」中查看自动计算的摊销明细，支持按月筛选。</p>
+              <p>确认每条费用的摊销月数后，系统自动从费用发生日期起按月生成摊销明细。</p>
             </div>
             <div className="flex items-start gap-3">
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">5</span>
-              <p>在「凭证管理」中批量生成当月凭证，并可通过 API 接口导出 JSON 数据对接财务系统。</p>
+              <p>在「凭证管理」中批量生成当月凭证，并可通过 API 接口导出 JSON 对接财务系统。</p>
             </div>
           </CardContent>
         </Card>
@@ -119,8 +119,8 @@ export default function Dashboard() {
             </div>
             <div className="p-2 rounded-md bg-muted">
               <span className="text-chart-1 font-semibold">POST</span>
-              <span className="ml-2">/api/set-amort-rule</span>
-              <p className="text-xs text-muted-foreground mt-1">设置摊销规则</p>
+              <span className="ml-2">/api/configure-fee-amort/:id</span>
+              <p className="text-xs text-muted-foreground mt-1">确认/修改费用摊销配置</p>
             </div>
             <div className="p-2 rounded-md bg-muted">
               <span className="text-chart-4 font-semibold">GET</span>
