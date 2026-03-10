@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,8 +18,31 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Settings2, Search } from "lucide-react";
+import { Settings2, Search, CalendarDays, ArrowRight } from "lucide-react";
 import type { Fee, Account, AmortizationRule } from "@shared/schema";
+
+function feeeDateToMonth(feeDate: string): string {
+  if (!feeDate) return "";
+  const parts = feeDate.split("-");
+  if (parts.length >= 2) return `${parts[0]}-${parts[1].padStart(2, "0")}`;
+  return "";
+}
+
+function addMonths(yearMonth: string, count: number): string {
+  if (!yearMonth || count <= 0) return yearMonth;
+  const [y, m] = yearMonth.split("-").map(Number);
+  const totalMonths = y * 12 + (m - 1) + (count - 1);
+  const newY = Math.floor(totalMonths / 12);
+  const newM = (totalMonths % 12) + 1;
+  return `${newY}-${String(newM).padStart(2, "0")}`;
+}
+
+function monthDiff(start: string, end: string): number {
+  if (!start || !end) return 0;
+  const [sy, sm] = start.split("-").map(Number);
+  const [ey, em] = end.split("-").map(Number);
+  return (ey - sy) * 12 + (em - sm) + 1;
+}
 
 export default function RulesPage() {
   const { toast } = useToast();
@@ -27,9 +50,13 @@ export default function RulesPage() {
   const [selectedFee, setSelectedFee] = useState<Fee | null>(null);
   const [search, setSearch] = useState("");
   const [ruleForm, setRuleForm] = useState({
-    startMonth: "", endMonth: "", method: "monthly",
+    startMonth: "", periods: 12, method: "monthly",
     debitAccountId: "", creditAccountId: "", remark: "",
   });
+
+  const endMonth = ruleForm.startMonth && ruleForm.periods > 0
+    ? addMonths(ruleForm.startMonth, ruleForm.periods)
+    : "";
 
   const { data: fees = [], isLoading: feesLoading } = useQuery<Fee[]>({
     queryKey: ["/api/fees"],
@@ -54,7 +81,7 @@ export default function RulesPage() {
       setDialogOpen(false);
       toast({
         title: "规则设置成功",
-        description: `已生成 ${data.entriesCount} 条摊销明细`,
+        description: `已生成 ${data.entriesCount} 期摊销明细（${data.rule?.startMonth} 至 ${data.rule?.endMonth}）`,
       });
     },
     onError: (e: Error) => {
@@ -64,13 +91,14 @@ export default function RulesPage() {
 
   const openRuleDialog = async (fee: Fee) => {
     setSelectedFee(fee);
+    const derivedStart = feeeDateToMonth(fee.feeDate);
     try {
       const res = await fetch(`/api/rules/${fee.id}`);
       const rule: AmortizationRule | null = await res.json();
       if (rule) {
         setRuleForm({
           startMonth: rule.startMonth,
-          endMonth: rule.endMonth,
+          periods: monthDiff(rule.startMonth, rule.endMonth),
           method: rule.method,
           debitAccountId: rule.debitAccountId?.toString() || "",
           creditAccountId: rule.creditAccountId?.toString() || "",
@@ -78,13 +106,17 @@ export default function RulesPage() {
         });
       } else {
         setRuleForm({
-          startMonth: "", endMonth: "", method: "monthly",
+          startMonth: derivedStart,
+          periods: 12,
+          method: "monthly",
           debitAccountId: "", creditAccountId: "", remark: "",
         });
       }
     } catch {
       setRuleForm({
-        startMonth: "", endMonth: "", method: "monthly",
+        startMonth: derivedStart,
+        periods: 12,
+        method: "monthly",
         debitAccountId: "", creditAccountId: "", remark: "",
       });
     }
@@ -92,11 +124,11 @@ export default function RulesPage() {
   };
 
   const handleSaveRule = () => {
-    if (!selectedFee) return;
+    if (!selectedFee || !ruleForm.startMonth || !endMonth) return;
     setRuleMutation.mutate({
       feeId: selectedFee.id,
       startMonth: ruleForm.startMonth,
-      endMonth: ruleForm.endMonth,
+      endMonth: endMonth,
       method: ruleForm.method,
       debitAccountId: ruleForm.debitAccountId ? Number(ruleForm.debitAccountId) : null,
       creditAccountId: ruleForm.creditAccountId ? Number(ruleForm.creditAccountId) : null,
@@ -114,7 +146,7 @@ export default function RulesPage() {
     <div className="p-6 space-y-4">
       <div>
         <h1 className="text-2xl font-bold" data-testid="text-rules-title">摊销规则配置</h1>
-        <p className="text-muted-foreground text-sm mt-1">为每条费用设置摊销期间、方式和科目</p>
+        <p className="text-muted-foreground text-sm mt-1">根据每条费用的发生日期设置摊销期数和科目</p>
       </div>
 
       <Card>
@@ -151,6 +183,7 @@ export default function RulesPage() {
                   <TableRow>
                     <TableHead>费用编号</TableHead>
                     <TableHead>费用名称</TableHead>
+                    <TableHead>发生日期</TableHead>
                     <TableHead className="text-right">总金额</TableHead>
                     <TableHead>规则状态</TableHead>
                     <TableHead className="w-24">操作</TableHead>
@@ -161,6 +194,12 @@ export default function RulesPage() {
                     <TableRow key={fee.id} data-testid={`row-rule-${fee.id}`}>
                       <TableCell className="font-mono text-sm">{fee.feeCode}</TableCell>
                       <TableCell>{fee.feeName}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                          <CalendarDays className="w-3.5 h-3.5" />
+                          {fee.feeDate || "-"}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right font-mono">
                         ¥{Number(fee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </TableCell>
@@ -198,31 +237,52 @@ export default function RulesPage() {
             </DialogTitle>
           </DialogHeader>
           {selectedFee && (
-            <div className="text-sm text-muted-foreground mb-2">
-              费用编号: {selectedFee.feeCode} | 总金额: ¥{Number(selectedFee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
+            <div className="space-y-1 text-sm text-muted-foreground mb-1">
+              <div>费用编号: {selectedFee.feeCode} | 总金额: ¥{Number(selectedFee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}</div>
+              <div className="flex items-center gap-1">
+                <CalendarDays className="w-3.5 h-3.5" />
+                费用发生日期: {selectedFee.feeDate || "未填写"}
+              </div>
             </div>
           )}
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>摊销开始月份 *</Label>
+                <Label>摊销起始月份 *</Label>
                 <Input
                   type="month"
                   value={ruleForm.startMonth}
                   onChange={(e) => setRuleForm({ ...ruleForm, startMonth: e.target.value })}
                   data-testid="input-start-month"
                 />
+                <p className="text-xs text-muted-foreground mt-1">默认取费用发生月份</p>
               </div>
               <div>
-                <Label>摊销结束月份 *</Label>
+                <Label>摊销期数（月） *</Label>
                 <Input
-                  type="month"
-                  value={ruleForm.endMonth}
-                  onChange={(e) => setRuleForm({ ...ruleForm, endMonth: e.target.value })}
-                  data-testid="input-end-month"
+                  type="number"
+                  min={1}
+                  max={360}
+                  value={ruleForm.periods}
+                  onChange={(e) => setRuleForm({ ...ruleForm, periods: Math.max(1, parseInt(e.target.value) || 1) })}
+                  data-testid="input-periods"
                 />
               </div>
             </div>
+            {ruleForm.startMonth && endMonth && (
+              <div className="flex items-center gap-2 p-3 rounded-md bg-muted text-sm">
+                <span className="font-medium">摊销区间:</span>
+                <span className="font-mono">{ruleForm.startMonth}</span>
+                <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                <span className="font-mono">{endMonth}</span>
+                <span className="text-muted-foreground">（共 {ruleForm.periods} 期）</span>
+                {selectedFee && (
+                  <span className="text-muted-foreground ml-auto">
+                    每期约 ¥{(Number(selectedFee.totalAmount) / ruleForm.periods).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                )}
+              </div>
+            )}
             <div>
               <Label>摊销方式</Label>
               <Select
@@ -234,7 +294,6 @@ export default function RulesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="monthly">等额按月摊销</SelectItem>
-                  <SelectItem value="daily">按天摊销</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -287,7 +346,7 @@ export default function RulesPage() {
             <Button variant="secondary" onClick={() => setDialogOpen(false)} data-testid="button-cancel-rule">取消</Button>
             <Button
               onClick={handleSaveRule}
-              disabled={setRuleMutation.isPending || !ruleForm.startMonth || !ruleForm.endMonth}
+              disabled={setRuleMutation.isPending || !ruleForm.startMonth || ruleForm.periods < 1}
               data-testid="button-save-rule"
             >
               {setRuleMutation.isPending ? "保存中..." : "保存并生成摊销明细"}
