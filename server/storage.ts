@@ -15,6 +15,7 @@ import {
 export interface IStorage {
   getEntities(): Promise<Entity[]>;
   getEntity(id: number): Promise<Entity | undefined>;
+  getEntityByName(name: string): Promise<Entity | undefined>;
   createEntity(data: InsertEntity): Promise<Entity>;
   updateEntity(id: number, data: Partial<InsertEntity>): Promise<Entity | undefined>;
   deleteEntity(id: number): Promise<boolean>;
@@ -60,6 +61,11 @@ export class DatabaseStorage implements IStorage {
   async getEntity(id: number): Promise<Entity | undefined> {
     const [e] = await db.select().from(entities).where(eq(entities.id, id));
     return e;
+  }
+
+  async getEntityByName(name: string): Promise<Entity | undefined> {
+    const all = await db.select().from(entities);
+    return all.find(e => e.name.trim() === name.trim());
   }
 
   async createEntity(data: InsertEntity): Promise<Entity> {

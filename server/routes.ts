@@ -4,8 +4,48 @@ import { storage } from "./storage";
 import { insertAccountSchema, insertFeeSchema, insertRuleTemplateSchema, insertEntitySchema } from "@shared/schema";
 import multer from "multer";
 import * as XLSX from "xlsx";
+import OpenAI from "openai";
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+function getOpenAIClient(): OpenAI | null {
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  if (!apiKey || !baseURL) return null;
+  return new OpenAI({ apiKey, baseURL });
+}
+
+async function matchCategoryWithAI(
+  feeTypeName: string,
+  templateNames: string[]
+): Promise<string | null> {
+  if (templateNames.length === 0) return null;
+  const client = getOpenAIClient();
+  if (!client) return null;
+  try {
+    const resp = await client.chat.completions.create({
+      model: "gpt-5-mini",
+      messages: [
+        {
+          role: "system",
+          content: `你是一个中文财务费用分类助手。用户会提供一个费用类型名称和若干现有费用类别模板名称。
+请判断该费用类型是否与某个现有模板属于同一类别。如果匹配，返回完全一致的模板名称；如果没有合适的匹配，返回字符串 "NONE"。
+只返回模板名称或 "NONE"，不要有任何其他解释。`,
+        },
+        {
+          role: "user",
+          content: `费用类型名称：${feeTypeName}\n现有模板：${templateNames.join("、")}`,
+        },
+      ],
+      max_completion_tokens: 100,
+    });
+    const answer = resp.choices[0]?.message?.content?.trim() ?? "NONE";
+    if (answer === "NONE") return null;
+    return templateNames.includes(answer) ? answer : null;
+  } catch {
+    return null;
+  }
+}
 
 function getCurrentMonth(): string {
   const now = new Date();
@@ -176,13 +216,14 @@ export async function registerRoutes(
 
   app.get("/api/import-template", (_req, res) => {
     const wb = XLSX.utils.book_new();
-    const header = ["费用编号", "费用名称", "总金额", "费用发生日期", "来源单据号", "来源系统"];
+    const header = ["单号", "标题", "支付公司", "支付日期", "费用类型名称", "金额", "消费事由"];
     const sample = [
-      ["FY-2026-001", "办公室装修费", 120000, "2026-01-15", "BX-20260115-001", "费控平台"],
-      ["FY-2026-002", "年度软件许可费", 36000, "2026-02-01", "BX-20260201-003", "费控平台"],
+      ["B25001295", "万达项目2010房间第2月房租4500元（3月）", "北京百胜星联科技有限公司", "2025-03-28", "差旅费/长期租房", 4500.00, "万达项目2010房间第2月房租4500元"],
+      ["B25001433", "支付2025年4月1日—4月30日房租+物业+2月电费", "上海百胜软件股份有限公司深圳分公司", "2025-03-26", "行政费/房租及物业", 34520.36, "支付2025年4月1日—4月30日房租+物业+2月电费"],
+      ["B25001210", "2025年4月办公区房租租金", "上海百胜软件股份有限公司", "2025-05-09", "行政费/房租及物业", 447121.35, "2025年4月办公区房租租金"],
     ];
     const ws = XLSX.utils.aoa_to_sheet([header, ...sample]);
-    ws["!cols"] = [{ wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 20 }, { wch: 12 }];
+    ws["!cols"] = [{ wch: 14 }, { wch: 30 }, { wch: 24 }, { wch: 14 }, { wch: 20 }, { wch: 12 }, { wch: 30 }];
     XLSX.utils.book_append_sheet(wb, ws, "费用导入模板");
     const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
     res.setHeader("Content-Disposition", 'attachment; filename="fee_import_template.xlsx"');
@@ -193,11 +234,6 @@ export async function registerRoutes(
   app.post("/api/import-fee", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
-      const entityId = Number(req.body.entityId);
-      if (!entityId) return res.status(400).json({ message: "请选择主体" });
-
-      const entity = await storage.getEntity(entityId);
-      if (!entity) return res.status(400).json({ message: "主体不存在" });
 
       const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -205,21 +241,79 @@ export async function registerRoutes(
 
       let imported = 0;
       let skipped = 0;
+      let newEntities = 0;
+      let newTemplates = 0;
+
+      const entityCache: Record<string, number> = {};
+      const templateCache: Record<string, number | null> = {};
 
       for (const row of rows) {
-        const feeCode = String(row["费用编号"] || row["feeCode"] || row["fee_code"] || "").trim();
-        const feeName = String(row["费用名称"] || row["feeName"] || row["fee_name"] || "").trim();
-        const totalAmount = String(row["总金额"] || row["totalAmount"] || row["total_amount"] || "0");
-        const feeDate = String(row["费用发生日期"] || row["feeDate"] || row["fee_date"] || "").trim();
-        const sourceRef = String(row["来源单据号"] || row["sourceRef"] || row["source_ref"] || "").trim();
-        const sourceSystem = String(row["来源系统"] || row["sourceSystem"] || row["source_system"] || "").trim();
+        const feeCode = String(row["单号"] || row["费用编号"] || row["feeCode"] || "").trim();
+        const feeName = String(row["标题"] || row["费用名称"] || row["feeName"] || "").trim();
+        const entityName = String(row["支付公司"] || row["entity"] || "").trim();
+        const feeDate = String(row["支付日期"] || row["费用发生日期"] || row["feeDate"] || "").trim();
+        const feeTypeName = String(row["费用类型名称"] || row["category"] || "").trim();
+        const totalAmount = String(row["金额"] || row["总金额"] || row["totalAmount"] || "0");
+        const sourceRef = String(row["消费事由"] || row["来源单据号"] || row["sourceRef"] || "").trim();
 
         if (!feeCode || !feeName) { skipped++; continue; }
 
         const existing = await storage.getFeeByCode(feeCode);
         if (existing) { skipped++; continue; }
 
-        const template = await storage.getRuleTemplateByName(feeName);
+        // Resolve entity (find or auto-create from 支付公司)
+        let entityId: number;
+        if (entityName) {
+          if (entityCache[entityName] !== undefined) {
+            entityId = entityCache[entityName];
+          } else {
+            let entity = await storage.getEntityByName(entityName);
+            if (!entity) {
+              const allEntities = await storage.getEntities();
+              const nextCode = `E${String(allEntities.length + 1).padStart(3, "0")}`;
+              entity = await storage.createEntity({ code: nextCode, name: entityName, description: null });
+              newEntities++;
+            }
+            entityCache[entityName] = entity.id;
+            entityId = entity.id;
+          }
+        } else {
+          skipped++; continue;
+        }
+
+        // Resolve template via AI match or substring match, then auto-create
+        let templateId: number | null = null;
+        if (feeTypeName) {
+          if (templateCache[feeTypeName] !== undefined) {
+            templateId = templateCache[feeTypeName];
+          } else {
+            // First try existing substring match
+            let template = await storage.getRuleTemplateByName(feeTypeName);
+            if (!template) {
+              // Try AI matching
+              const allTemplates = await storage.getRuleTemplates();
+              const templateNames = allTemplates.map(t => t.name);
+              const aiMatch = await matchCategoryWithAI(feeTypeName, templateNames);
+              if (aiMatch) {
+                template = allTemplates.find(t => t.name === aiMatch);
+              }
+            }
+            if (!template) {
+              // Auto-create new template
+              template = await storage.createRuleTemplate({
+                name: feeTypeName,
+                defaultMonths: 12,
+                debitAccountId: null,
+                creditAccountId: null,
+              });
+              newTemplates++;
+            }
+            templateCache[feeTypeName] = template.id;
+            templateId = template.id;
+          }
+        }
+
+        const template = templateId ? await storage.getRuleTemplate(templateId) : null;
         const startMonth = feeeDateToMonth(feeDate);
         const amortMonths = template?.defaultMonths || null;
         const endMonth = amortMonths ? addMonths(startMonth, amortMonths) : null;
@@ -231,7 +325,7 @@ export async function registerRoutes(
           totalAmount,
           feeDate,
           sourceRef: sourceRef || null,
-          sourceSystem: sourceSystem || null,
+          sourceSystem: null,
           amortMonths,
           startMonth,
           endMonth,
@@ -242,7 +336,7 @@ export async function registerRoutes(
         imported++;
       }
 
-      res.json({ imported, skipped, total: rows.length });
+      res.json({ imported, skipped, total: rows.length, newEntities, newTemplates });
     } catch (e: any) {
       res.status(400).json({ message: e.message });
     }

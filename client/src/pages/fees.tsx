@@ -41,7 +41,6 @@ export default function FeesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const [selectedEntityId, setSelectedEntityId] = useState<string>("");
-  const [importEntityId, setImportEntityId] = useState<string>("");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [amortDialogOpen, setAmortDialogOpen] = useState(false);
   const [selectedFee, setSelectedFee] = useState<Fee | null>(null);
@@ -77,10 +76,8 @@ export default function FeesPage() {
 
   const importMutation = useMutation({
     mutationFn: async (file: File) => {
-      if (!importEntityId) throw new Error("请先选择导入主体");
       const fd = new FormData();
       fd.append("file", file);
-      fd.append("entityId", importEntityId);
       const res = await fetch("/api/import-fee", { method: "POST", body: fd });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: "导入失败" }));
@@ -90,10 +87,14 @@ export default function FeesPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/fees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/entities"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      const extras: string[] = [];
+      if (data.newEntities > 0) extras.push(`新增主体 ${data.newEntities} 个`);
+      if (data.newTemplates > 0) extras.push(`新增费用类别 ${data.newTemplates} 个`);
       toast({
         title: "导入成功",
-        description: `共 ${data.total} 条，导入 ${data.imported} 条，跳过 ${data.skipped} 条`,
+        description: `共 ${data.total} 条，导入 ${data.imported} 条，跳过 ${data.skipped} 条${extras.length ? "，" + extras.join("，") : ""}`,
       });
     },
     onError: (e: Error) => {
@@ -190,16 +191,6 @@ export default function FeesPage() {
           <p className="text-muted-foreground text-sm mt-1">导入费用明细，配置每条费用的摊销月数</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Select value={importEntityId} onValueChange={setImportEntityId}>
-            <SelectTrigger className="w-40" data-testid="select-import-entity">
-              <SelectValue placeholder="选择导入主体" />
-            </SelectTrigger>
-            <SelectContent>
-              {entityList.map((e) => (
-                <SelectItem key={e.id} value={e.id.toString()}>{e.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           <input
             ref={fileInputRef}
             type="file"
@@ -226,13 +217,7 @@ export default function FeesPage() {
             下载模板
           </Button>
           <Button
-            onClick={() => {
-              if (!importEntityId) {
-                toast({ title: "请先选择导入主体", variant: "destructive" });
-                return;
-              }
-              fileInputRef.current?.click();
-            }}
+            onClick={() => fileInputRef.current?.click()}
             disabled={importMutation.isPending}
             data-testid="button-import"
           >
@@ -240,7 +225,7 @@ export default function FeesPage() {
             {importMutation.isPending ? "导入中..." : "导入 Excel/CSV"}
           </Button>
           <Button variant="secondary" onClick={() => {
-            setFormData({ entityId: importEntityId ? Number(importEntityId) : 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "" });
+            setFormData({ entityId: 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "" });
             setAddDialogOpen(true);
           }} data-testid="button-add-fee">
             <Plus className="w-4 h-4 mr-1" />
