@@ -9,6 +9,7 @@ A full-stack multi-entity expense amortization system. Supports importing fees f
 - **Database**: PostgreSQL with Drizzle ORM
 - **File Parsing**: xlsx (for Excel/CSV import)
 - **File Upload**: multer
+- **AI**: OpenAI via Replit AI Integrations (for intelligent fee category matching during import)
 
 ## Architecture
 ```
@@ -54,7 +55,7 @@ Each fee belongs to a specific entity. Amortization tables and vouchers can be f
 
 ## API Endpoints
 - `GET/POST/PUT/DELETE /api/entities` - Entity CRUD
-- `POST /api/import-fee` - Import fees (requires entityId in form data)
+- `POST /api/import-fee` - Import fees (no entityId needed; entity auto-detected from 支付公司 column)
 - `GET /api/fees?entityId=` - List fees, optional entity filter
 - `POST /api/configure-fee-amort/:id` - Configure per-fee amortization
 - `GET /api/amort-table?month=&entityId=` - Monthly amortization table
@@ -65,7 +66,9 @@ Each fee belongs to a specific entity. Amortization tables and vouchers can be f
 
 ## Key Features
 - Multi-entity accounting support
-- Excel/CSV import with entity assignment and duplicate detection
+- Excel/CSV import in standard format (单号, 标题, 支付公司, 支付日期, 费用类型名称, 金额, 消费事由)
+- Auto-create entity from 支付公司 column; duplicate detection by 单号
+- AI-powered (OpenAI) fee category matching: matches imported 费用类型名称 to existing rule templates; auto-creates new template if no match found
 - Category-level rule templates with auto-matching on import
 - Per-fee amortization config with template defaults + individual override
 - Equal monthly amortization with tail difference adjustment

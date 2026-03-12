@@ -235,9 +235,17 @@ export async function registerRoutes(
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
-      const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+      const isCSV = req.file.originalname?.toLowerCase().endsWith(".csv") ||
+        req.file.mimetype === "text/csv" || req.file.mimetype === "application/csv";
+      let workbook: XLSX.WorkBook;
+      if (isCSV) {
+        const csvStr = req.file.buffer.toString("utf-8").replace(/^\uFEFF/, "");
+        workbook = XLSX.read(csvStr, { type: "string" });
+      } else {
+        workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+      }
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { raw: false });
 
       let imported = 0;
       let skipped = 0;
@@ -271,7 +279,7 @@ export async function registerRoutes(
             if (!entity) {
               const allEntities = await storage.getEntities();
               const nextCode = `E${String(allEntities.length + 1).padStart(3, "0")}`;
-              entity = await storage.createEntity({ code: nextCode, name: entityName, description: null });
+              entity = await storage.createEntity({ code: nextCode, name: entityName, remark: null });
               newEntities++;
             }
             entityCache[entityName] = entity.id;
