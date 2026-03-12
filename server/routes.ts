@@ -50,6 +50,29 @@ function calculateAmortization(totalAmount: number, months: string[]): { month: 
   }));
 }
 
+async function generateEntriesForFee(feeId: number): Promise<number> {
+  const fee = await storage.getFee(feeId);
+  if (!fee || !fee.startMonth || !fee.endMonth || !fee.amortMonths) return 0;
+  await storage.deleteEntriesByFeeId(feeId);
+  const months = getMonthsBetween(fee.startMonth, fee.endMonth);
+  const totalAmount = parseFloat(fee.totalAmount);
+  const amortEntries = calculateAmortization(totalAmount, months);
+  let cumulative = 0;
+  for (const entry of amortEntries) {
+    cumulative += entry.amount;
+    const remaining = Math.round((totalAmount - cumulative) * 100) / 100;
+    await storage.createEntry({
+      feeId,
+      month: entry.month,
+      amount: entry.amount.toFixed(2),
+      cumulativeAmount: cumulative.toFixed(2),
+      remainingAmount: remaining.toFixed(2),
+      voucherGenerated: false,
+    });
+  }
+  return amortEntries.length;
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -275,7 +298,7 @@ export async function registerRoutes(
         const amortMonths = template?.defaultMonths || null;
         const endMonth = amortMonths ? addMonths(startMonth, amortMonths) : null;
 
-        await storage.createFee({
+        const newFee = await storage.createFee({
           entityId,
           feeCode,
           feeName,
@@ -290,6 +313,11 @@ export async function registerRoutes(
           creditAccountId: template?.creditAccountId || null,
           amortConfigured: false,
         });
+
+        if (amortMonths && startMonth && endMonth) {
+          await generateEntriesForFee(newFee.id);
+          await storage.updateFee(newFee.id, { amortConfigured: true });
+        }
         imported++;
       }
 
@@ -326,25 +354,25 @@ export async function registerRoutes(
         amortConfigured: true,
       });
 
-      const months = getMonthsBetween(startMonth, endMonth);
-      const totalAmount = parseFloat(fee.totalAmount);
-      const amortEntries = calculateAmortization(totalAmount, months);
+      const entriesCount = await generateEntriesForFee(id);
 
-      let cumulative = 0;
-      for (const entry of amortEntries) {
-        cumulative += entry.amount;
-        const remaining = Math.round((totalAmount - cumulative) * 100) / 100;
-        await storage.createEntry({
-          feeId: id,
-          month: entry.month,
-          amount: entry.amount.toFixed(2),
-          cumulativeAmount: cumulative.toFixed(2),
-          remainingAmount: remaining.toFixed(2),
-          voucherGenerated: false,
-        });
+      res.json({ success: true, entriesCount, startMonth, endMonth });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/batch-generate-amort", async (_req, res) => {
+    try {
+      const allFees = await storage.getFees();
+      const unconfigured = allFees.filter(f => !f.amortConfigured && f.amortMonths && f.startMonth && f.endMonth);
+      let processed = 0;
+      for (const fee of unconfigured) {
+        await generateEntriesForFee(fee.id);
+        await storage.updateFee(fee.id, { amortConfigured: true });
+        processed++;
       }
-
-      res.json({ success: true, entriesCount: amortEntries.length, startMonth, endMonth });
+      res.json({ success: true, processed });
     } catch (e: any) {
       res.status(400).json({ message: e.message });
     }

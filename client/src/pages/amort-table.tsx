@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { CalendarRange } from "lucide-react";
+import { Link } from "wouter";
 import type { AmortizationEntryWithDetails, Entity } from "@shared/schema";
 
 function getCurrentMonth(): string {
@@ -95,8 +96,13 @@ export default function AmortTablePage() {
           ) : entries.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <CalendarRange className="w-12 h-12 mx-auto mb-3 opacity-40" />
-              <p className="text-sm">该月份无摊销数据</p>
-              <p className="text-xs mt-1">请确保已导入费用并配置了摊销规则</p>
+              <p className="text-sm font-medium">该月份无摊销数据</p>
+              <p className="text-xs mt-1">请切换到有摊销记录的月份，或前往</p>
+              <Link href="/fees">
+                <span className="text-xs text-primary underline cursor-pointer mt-1 inline-block">
+                  费用导入页面 → 点击「批量生成摊销明细」
+                </span>
+              </Link>
             </div>
           ) : (
             <div className="overflow-x-auto">

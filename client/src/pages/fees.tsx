@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Plus, Trash2, Search, FileSpreadsheet, Settings2, ArrowRight, Download } from "lucide-react";
+import { Upload, Plus, Trash2, Search, FileSpreadsheet, Settings2, ArrowRight, Download, Zap } from "lucide-react";
 import type { Fee, InsertFee, Account, Entity } from "@shared/schema";
 
 function addMonthsFn(yearMonth: string, count: number): string {
@@ -155,6 +155,25 @@ export default function FeesPage() {
     },
   });
 
+  const batchGenerateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/batch-generate-amort", {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/fees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/amort-table"] });
+      toast({
+        title: "批量生成完成",
+        description: `已为 ${data.processed} 条费用自动生成摊销明细`,
+      });
+    },
+    onError: (e: Error) => {
+      toast({ title: "批量生成失败", description: e.message, variant: "destructive" });
+    },
+  });
+
   const openAmortDialog = (fee: Fee) => {
     setSelectedFee(fee);
     setAmortForm({
@@ -179,6 +198,8 @@ export default function FeesPage() {
 
   const selectedEndMonth = amortForm.startMonth && amortForm.amortMonths > 0
     ? addMonthsFn(amortForm.startMonth, amortForm.amortMonths) : "";
+
+  const unconfiguredCount = fees.filter(f => !f.amortConfigured && f.amortMonths && f.startMonth).length;
 
   const filtered = fees.filter(
     (f) =>
@@ -219,6 +240,17 @@ export default function FeesPage() {
             <Download className="w-4 h-4 mr-1" />
             下载模板
           </Button>
+          {unconfiguredCount > 0 && (
+            <Button
+              variant="secondary"
+              onClick={() => batchGenerateMutation.mutate()}
+              disabled={batchGenerateMutation.isPending}
+              data-testid="button-batch-generate"
+            >
+              <Zap className="w-4 h-4 mr-1" />
+              {batchGenerateMutation.isPending ? "生成中..." : `批量生成摊销明细 (${unconfiguredCount})`}
+            </Button>
+          )}
           <Button
             onClick={() => fileInputRef.current?.click()}
             disabled={importMutation.isPending}
