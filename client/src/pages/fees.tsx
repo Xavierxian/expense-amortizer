@@ -49,6 +49,7 @@ export default function FeesPage() {
   });
   const [amortForm, setAmortForm] = useState({
     amortMonths: 12,
+    startMonth: "",
     debitAccountId: "",
     creditAccountId: "",
   });
@@ -130,9 +131,10 @@ export default function FeesPage() {
   });
 
   const configureAmortMutation = useMutation({
-    mutationFn: async (data: { id: number; amortMonths: number; debitAccountId: number | null; creditAccountId: number | null }) => {
+    mutationFn: async (data: { id: number; amortMonths: number; startMonth: string; debitAccountId: number | null; creditAccountId: number | null }) => {
       const res = await apiRequest("POST", `/api/configure-fee-amort/${data.id}`, {
         amortMonths: data.amortMonths,
+        startMonth: data.startMonth,
         debitAccountId: data.debitAccountId,
         creditAccountId: data.creditAccountId,
       });
@@ -157,6 +159,7 @@ export default function FeesPage() {
     setSelectedFee(fee);
     setAmortForm({
       amortMonths: fee.amortMonths || 12,
+      startMonth: fee.startMonth || feeeDateToMonth(fee.feeDate),
       debitAccountId: fee.debitAccountId?.toString() || "",
       creditAccountId: fee.creditAccountId?.toString() || "",
     });
@@ -168,14 +171,14 @@ export default function FeesPage() {
     configureAmortMutation.mutate({
       id: selectedFee.id,
       amortMonths: amortForm.amortMonths,
+      startMonth: amortForm.startMonth,
       debitAccountId: amortForm.debitAccountId ? Number(amortForm.debitAccountId) : null,
       creditAccountId: amortForm.creditAccountId ? Number(amortForm.creditAccountId) : null,
     });
   };
 
-  const selectedStartMonth = selectedFee ? feeeDateToMonth(selectedFee.feeDate) : "";
-  const selectedEndMonth = selectedStartMonth && amortForm.amortMonths > 0
-    ? addMonthsFn(selectedStartMonth, amortForm.amortMonths) : "";
+  const selectedEndMonth = amortForm.startMonth && amortForm.amortMonths > 0
+    ? addMonthsFn(amortForm.startMonth, amortForm.amortMonths) : "";
 
   const filtered = fees.filter(
     (f) =>
@@ -422,22 +425,34 @@ export default function FeesPage() {
             </div>
           )}
           <div className="space-y-3">
-            <div>
-              <Label>摊销月数 *</Label>
-              <Input
-                type="number"
-                min={1}
-                max={360}
-                value={amortForm.amortMonths}
-                onChange={(e) => setAmortForm({ ...amortForm, amortMonths: Math.max(1, parseInt(e.target.value) || 1) })}
-                data-testid="input-amort-months"
-              />
-              <p className="text-xs text-muted-foreground mt-1">从规则模板自动带入，可根据实际情况修改</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>摊销开始年月 *</Label>
+                <Input
+                  type="month"
+                  value={amortForm.startMonth}
+                  onChange={(e) => setAmortForm({ ...amortForm, startMonth: e.target.value })}
+                  data-testid="input-start-month"
+                />
+                <p className="text-xs text-muted-foreground mt-1">默认取费用发生日期，可修改</p>
+              </div>
+              <div>
+                <Label>摊销月数 *</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={360}
+                  value={amortForm.amortMonths}
+                  onChange={(e) => setAmortForm({ ...amortForm, amortMonths: Math.max(1, parseInt(e.target.value) || 1) })}
+                  data-testid="input-amort-months"
+                />
+                <p className="text-xs text-muted-foreground mt-1">从规则模板带入，可修改</p>
+              </div>
             </div>
-            {selectedStartMonth && selectedEndMonth && (
+            {amortForm.startMonth && selectedEndMonth && (
               <div className="flex items-center gap-2 p-3 rounded-md bg-muted text-sm flex-wrap">
                 <span className="font-medium">摊销区间:</span>
-                <span className="font-mono">{selectedStartMonth}</span>
+                <span className="font-mono">{amortForm.startMonth}</span>
                 <ArrowRight className="w-4 h-4 text-muted-foreground" />
                 <span className="font-mono">{selectedEndMonth}</span>
                 <span className="text-muted-foreground">（共 {amortForm.amortMonths} 期）</span>

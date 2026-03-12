@@ -4,48 +4,8 @@ import { storage } from "./storage";
 import { insertAccountSchema, insertFeeSchema, insertRuleTemplateSchema, insertEntitySchema } from "@shared/schema";
 import multer from "multer";
 import * as XLSX from "xlsx";
-import OpenAI from "openai";
 
 const upload = multer({ storage: multer.memoryStorage() });
-
-function getOpenAIClient(): OpenAI | null {
-  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-  if (!apiKey || !baseURL) return null;
-  return new OpenAI({ apiKey, baseURL });
-}
-
-async function matchCategoryWithAI(
-  feeTypeName: string,
-  templateNames: string[]
-): Promise<string | null> {
-  if (templateNames.length === 0) return null;
-  const client = getOpenAIClient();
-  if (!client) return null;
-  try {
-    const resp = await client.chat.completions.create({
-      model: "gpt-5-mini",
-      messages: [
-        {
-          role: "system",
-          content: `你是一个中文财务费用分类助手。用户会提供一个费用类型名称和若干现有费用类别模板名称。
-请判断该费用类型是否与某个现有模板属于同一类别。如果匹配，返回完全一致的模板名称；如果没有合适的匹配，返回字符串 "NONE"。
-只返回模板名称或 "NONE"，不要有任何其他解释。`,
-        },
-        {
-          role: "user",
-          content: `费用类型名称：${feeTypeName}\n现有模板：${templateNames.join("、")}`,
-        },
-      ],
-      max_completion_tokens: 100,
-    });
-    const answer = resp.choices[0]?.message?.content?.trim() ?? "NONE";
-    if (answer === "NONE") return null;
-    return templateNames.includes(answer) ? answer : null;
-  } catch {
-    return null;
-  }
-}
 
 function getCurrentMonth(): string {
   const now = new Date();
@@ -289,25 +249,14 @@ export async function registerRoutes(
           skipped++; continue;
         }
 
-        // Resolve template via AI match or substring match, then auto-create
+        // Resolve template via substring match, then auto-create if not found
         let templateId: number | null = null;
         if (feeTypeName) {
           if (templateCache[feeTypeName] !== undefined) {
             templateId = templateCache[feeTypeName];
           } else {
-            // First try existing substring match
             let template = await storage.getRuleTemplateByName(feeTypeName);
             if (!template) {
-              // Try AI matching
-              const allTemplates = await storage.getRuleTemplates();
-              const templateNames = allTemplates.map(t => t.name);
-              const aiMatch = await matchCategoryWithAI(feeTypeName, templateNames);
-              if (aiMatch) {
-                template = allTemplates.find(t => t.name === aiMatch);
-              }
-            }
-            if (!template) {
-              // Auto-create new template
               template = await storage.createRuleTemplate({
                 name: feeTypeName,
                 defaultMonths: 12,
@@ -356,12 +305,14 @@ export async function registerRoutes(
       const fee = await storage.getFee(id);
       if (!fee) return res.status(404).json({ message: "Fee not found" });
 
-      const { amortMonths, debitAccountId, creditAccountId } = req.body;
+      const { amortMonths, debitAccountId, creditAccountId, startMonth: reqStartMonth } = req.body;
       if (!amortMonths || amortMonths < 1) {
         return res.status(400).json({ message: "Amortization months must be at least 1" });
       }
 
-      const startMonth = feeeDateToMonth(fee.feeDate);
+      const startMonth = (reqStartMonth && /^\d{4}-\d{2}$/.test(reqStartMonth))
+        ? reqStartMonth
+        : feeeDateToMonth(fee.feeDate);
       const endMonth = addMonths(startMonth, amortMonths);
 
       await storage.deleteEntriesByFeeId(id);
