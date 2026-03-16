@@ -426,13 +426,21 @@ export default function FeesPage() {
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>所属主体 *</Label>
+              <Label>单号 *</Label>
+              <Input value={formData.feeCode || ""} onChange={(e) => setFormData({ ...formData, feeCode: e.target.value })} data-testid="input-fee-code" placeholder="费用单据编号" />
+            </div>
+            <div>
+              <Label>标题 *</Label>
+              <Input value={formData.feeName || ""} onChange={(e) => setFormData({ ...formData, feeName: e.target.value })} data-testid="input-fee-name" placeholder="费用名称或摘要" />
+            </div>
+            <div>
+              <Label>支付公司 *</Label>
               <Select
                 value={formData.entityId?.toString() || ""}
                 onValueChange={(v) => setFormData({ ...formData, entityId: Number(v) })}
               >
                 <SelectTrigger data-testid="select-add-entity">
-                  <SelectValue placeholder="选择主体" />
+                  <SelectValue placeholder="选择支付公司" />
                 </SelectTrigger>
                 <SelectContent>
                   {entityList.map((e) => (
@@ -442,19 +450,7 @@ export default function FeesPage() {
               </Select>
             </div>
             <div>
-              <Label>费用编号 *</Label>
-              <Input value={formData.feeCode || ""} onChange={(e) => setFormData({ ...formData, feeCode: e.target.value })} data-testid="input-fee-code" />
-            </div>
-            <div>
-              <Label>费用名称 *</Label>
-              <Input value={formData.feeName || ""} onChange={(e) => setFormData({ ...formData, feeName: e.target.value })} data-testid="input-fee-name" />
-            </div>
-            <div>
-              <Label>总金额 *</Label>
-              <Input type="number" value={formData.totalAmount || ""} onChange={(e) => setFormData({ ...formData, totalAmount: e.target.value })} data-testid="input-fee-amount" />
-            </div>
-            <div>
-              <Label>费用发生日期 *</Label>
+              <Label>支付日期 *</Label>
               <Input
                 type="date"
                 value={formData.feeDate || ""}
@@ -462,56 +458,48 @@ export default function FeesPage() {
                 data-testid="input-fee-date"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>费用类型</Label>
-                <Select
-                  value={formData.templateId || ""}
-                  onValueChange={(v) => {
-                    const tmpl = templates.find(t => t.id.toString() === v);
-                    setFormData({
-                      ...formData,
-                      templateId: v,
-                      amortMonths: tmpl?.defaultMonths ?? formData.amortMonths,
-                    });
-                  }}
-                >
-                  <SelectTrigger data-testid="select-add-template">
-                    <SelectValue placeholder="选择类型（可选）" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">不选择</SelectItem>
-                    {templates.map((t) => (
-                      <SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground mt-1">选后自动生成摊销明细</p>
-              </div>
-              <div>
-                <Label>摊销月数</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={360}
-                  value={formData.amortMonths || ""}
-                  onChange={(e) => setFormData({ ...formData, amortMonths: parseInt(e.target.value) || undefined })}
-                  placeholder="从类型模板带入"
-                  data-testid="input-add-amort-months"
-                />
-              </div>
-            </div>
-            {formData.templateId && formData.templateId !== "none" && formData.feeDate && (
-              <div className="text-xs text-muted-foreground p-2 rounded bg-muted">
-                摊销开始月: <span className="font-mono font-medium">{feeeDateToMonth(formData.feeDate)}</span>
-                {formData.amortMonths && formData.amortMonths > 0 && (
-                  <> → <span className="font-mono font-medium">{addMonthsFn(feeeDateToMonth(formData.feeDate), formData.amortMonths)}</span>（共 {formData.amortMonths} 期）</>
-                )}
-              </div>
-            )}
             <div>
-              <Label>来源单据号</Label>
-              <Input value={formData.sourceRef || ""} onChange={(e) => setFormData({ ...formData, sourceRef: e.target.value })} data-testid="input-source-ref" />
+              <Label>费用类型名称</Label>
+              <Select
+                value={formData.templateId || ""}
+                onValueChange={(v) => {
+                  const tmpl = templates.find(t => t.id.toString() === v);
+                  setFormData({
+                    ...formData,
+                    templateId: v,
+                    amortMonths: tmpl?.defaultMonths ?? formData.amortMonths,
+                  });
+                }}
+              >
+                <SelectTrigger data-testid="select-add-template">
+                  <SelectValue placeholder="选择费用类型（可选，选后自动生成摊销明细）" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">不选择</SelectItem>
+                  {templates.map((t) => (
+                    <SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {formData.templateId && formData.templateId !== "none" && formData.feeDate && (() => {
+                const tmpl = templates.find(t => t.id.toString() === formData.templateId);
+                const months = tmpl?.defaultMonths || 12;
+                const start = feeeDateToMonth(formData.feeDate);
+                const end = addMonthsFn(start, months);
+                return (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    摊销 {months} 个月，{start} → {end}，自动生成明细
+                  </p>
+                );
+              })()}
+            </div>
+            <div>
+              <Label>金额 *</Label>
+              <Input type="number" value={formData.totalAmount || ""} onChange={(e) => setFormData({ ...formData, totalAmount: e.target.value })} data-testid="input-fee-amount" placeholder="0.00" />
+            </div>
+            <div>
+              <Label>消费事由</Label>
+              <Input value={formData.sourceRef || ""} onChange={(e) => setFormData({ ...formData, sourceRef: e.target.value })} data-testid="input-source-ref" placeholder="费用说明或用途" />
             </div>
           </div>
           <DialogFooter>
