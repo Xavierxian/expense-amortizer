@@ -18,7 +18,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, Plus, Trash2, Search, FileSpreadsheet, Settings2, ArrowRight, Download, Zap } from "lucide-react";
-import type { Fee, InsertFee, Account, Entity } from "@shared/schema";
+import type { Fee, InsertFee, Account, Entity, RuleTemplate } from "@shared/schema";
 
 function addMonthsFn(yearMonth: string, count: number): string {
   if (!yearMonth || count <= 0) return yearMonth;
@@ -29,10 +29,31 @@ function addMonthsFn(yearMonth: string, count: number): string {
   return `${newY}-${String(newM).padStart(2, "0")}`;
 }
 
+function normalizeDate(raw: string): string {
+  if (!raw) return "";
+  const s = raw.trim();
+  if (/^\d{4,6}$/.test(s)) {
+    const serial = parseInt(s);
+    const date = new Date(Math.round((serial - 25569) * 86400 * 1000));
+    const y = date.getUTCFullYear();
+    const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(date.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  const slash = s.split("/");
+  if (slash.length === 3) {
+    let yr = slash[2].trim();
+    if (yr.length === 2) yr = "20" + yr;
+    return `${yr}-${slash[0].trim().padStart(2, "0")}-${slash[1].trim().padStart(2, "0")}`;
+  }
+  return s;
+}
+
 function feeeDateToMonth(feeDate: string): string {
   if (!feeDate) return "";
-  const parts = feeDate.split("-");
-  if (parts.length >= 2) return `${parts[0]}-${parts[1].padStart(2, "0")}`;
+  const normalized = normalizeDate(feeDate);
+  const parts = normalized.split("-");
+  if (parts.length >= 2 && parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, "0")}`;
   return "";
 }
 
@@ -44,8 +65,8 @@ export default function FeesPage() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [amortDialogOpen, setAmortDialogOpen] = useState(false);
   const [selectedFee, setSelectedFee] = useState<Fee | null>(null);
-  const [formData, setFormData] = useState<Partial<InsertFee>>({
-    entityId: 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "",
+  const [formData, setFormData] = useState<Partial<InsertFee> & { templateId?: string }>({
+    entityId: 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "", templateId: "",
   });
   const [amortForm, setAmortForm] = useState({
     amortMonths: 12,
@@ -56,6 +77,10 @@ export default function FeesPage() {
 
   const { data: entityList = [] } = useQuery<Entity[]>({
     queryKey: ["/api/entities"],
+  });
+
+  const { data: templates = [] } = useQuery<RuleTemplate[]>({
+    queryKey: ["/api/rule-templates"],
   });
 
   const entityParam = selectedEntityId && selectedEntityId !== "all" ? `?entityId=${selectedEntityId}` : "";
@@ -104,15 +129,22 @@ export default function FeesPage() {
   });
 
   const addMutation = useMutation({
-    mutationFn: async (data: Partial<InsertFee>) => {
-      const res = await apiRequest("POST", "/api/fees", { ...data, amortConfigured: false });
+    mutationFn: async (data: Partial<InsertFee> & { templateId?: string }) => {
+      const { templateId, ...feeData } = data;
+      const res = await apiRequest("POST", "/api/fees", {
+        ...feeData,
+        amortConfigured: false,
+        ...(templateId ? { templateId: Number(templateId) } : {}),
+      });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (fee) => {
       queryClient.invalidateQueries({ queryKey: ["/api/fees"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/amort-table"] });
       setAddDialogOpen(false);
-      toast({ title: "添加成功" });
+      setFormData({ entityId: 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "", templateId: "" });
+      toast({ title: "添加成功", description: fee.amortConfigured ? "已自动生成摊销明细" : "请在列表中配置摊销规则" });
     },
     onError: (e: Error) => {
       toast({ title: "添加失败", description: e.message, variant: "destructive" });
@@ -260,7 +292,7 @@ export default function FeesPage() {
             {importMutation.isPending ? "导入中..." : "导入 Excel/CSV"}
           </Button>
           <Button variant="secondary" onClick={() => {
-            setFormData({ entityId: 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "" });
+            setFormData({ entityId: 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "", templateId: "" });
             setAddDialogOpen(true);
           }} data-testid="button-add-fee">
             <Plus className="w-4 h-4 mr-1" />
@@ -336,7 +368,7 @@ export default function FeesPage() {
                       <TableCell className="text-right font-mono">
                         ¥{Number(fee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{fee.feeDate}</TableCell>
+                      <TableCell className="text-muted-foreground">{normalizeDate(fee.feeDate)}</TableCell>
                       <TableCell className="text-center">
                         {fee.amortMonths ? (
                           <Badge variant="secondary">{fee.amortMonths} 月</Badge>
@@ -390,7 +422,7 @@ export default function FeesPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>手动添加费用</DialogTitle>
-            <DialogDescription>填写费用基本信息，添加后可在列表中配置摊销月数</DialogDescription>
+            <DialogDescription>填写费用基本信息，选择费用类型后将自动生成摊销明细</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
@@ -423,8 +455,60 @@ export default function FeesPage() {
             </div>
             <div>
               <Label>费用发生日期 *</Label>
-              <Input type="date" value={formData.feeDate || ""} onChange={(e) => setFormData({ ...formData, feeDate: e.target.value })} data-testid="input-fee-date" />
+              <Input
+                type="date"
+                value={formData.feeDate || ""}
+                onChange={(e) => setFormData({ ...formData, feeDate: e.target.value })}
+                data-testid="input-fee-date"
+              />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>费用类型</Label>
+                <Select
+                  value={formData.templateId || ""}
+                  onValueChange={(v) => {
+                    const tmpl = templates.find(t => t.id.toString() === v);
+                    setFormData({
+                      ...formData,
+                      templateId: v,
+                      amortMonths: tmpl?.defaultMonths ?? formData.amortMonths,
+                    });
+                  }}
+                >
+                  <SelectTrigger data-testid="select-add-template">
+                    <SelectValue placeholder="选择类型（可选）" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">不选择</SelectItem>
+                    {templates.map((t) => (
+                      <SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">选后自动生成摊销明细</p>
+              </div>
+              <div>
+                <Label>摊销月数</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={360}
+                  value={formData.amortMonths || ""}
+                  onChange={(e) => setFormData({ ...formData, amortMonths: parseInt(e.target.value) || undefined })}
+                  placeholder="从类型模板带入"
+                  data-testid="input-add-amort-months"
+                />
+              </div>
+            </div>
+            {formData.templateId && formData.templateId !== "none" && formData.feeDate && (
+              <div className="text-xs text-muted-foreground p-2 rounded bg-muted">
+                摊销开始月: <span className="font-mono font-medium">{feeeDateToMonth(formData.feeDate)}</span>
+                {formData.amortMonths && formData.amortMonths > 0 && (
+                  <> → <span className="font-mono font-medium">{addMonthsFn(feeeDateToMonth(formData.feeDate), formData.amortMonths)}</span>（共 {formData.amortMonths} 期）</>
+                )}
+              </div>
+            )}
             <div>
               <Label>来源单据号</Label>
               <Input value={formData.sourceRef || ""} onChange={(e) => setFormData({ ...formData, sourceRef: e.target.value })} data-testid="input-source-ref" />
@@ -453,7 +537,7 @@ export default function FeesPage() {
           </DialogHeader>
           {selectedFee && (
             <div className="text-sm text-muted-foreground mb-1">
-              费用编号: {selectedFee.feeCode} | 总金额: ¥{Number(selectedFee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} | 发生日期: {selectedFee.feeDate}
+              费用编号: {selectedFee.feeCode} | 总金额: ¥{Number(selectedFee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} | 发生日期: {normalizeDate(selectedFee.feeDate)}
             </div>
           )}
           <div className="space-y-3">

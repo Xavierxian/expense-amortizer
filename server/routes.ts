@@ -12,10 +12,34 @@ function getCurrentMonth(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function normalizeExcelDate(raw: string): string {
+  if (!raw) return raw;
+  const s = raw.trim();
+  // Excel serial number (pure integer like "46014")
+  if (/^\d{4,6}$/.test(s)) {
+    const serial = parseInt(s);
+    // Excel's epoch is Dec 30, 1899 (accounting for leap year bug)
+    const date = new Date(Math.round((serial - 25569) * 86400 * 1000));
+    const y = date.getUTCFullYear();
+    const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(date.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  // M/D/YY or M/D/YYYY format
+  const slash = s.split("/");
+  if (slash.length === 3) {
+    let yr = slash[2].trim();
+    if (yr.length === 2) yr = "20" + yr;
+    return `${yr}-${slash[0].trim().padStart(2, "0")}-${slash[1].trim().padStart(2, "0")}`;
+  }
+  return s;
+}
+
 function feeeDateToMonth(feeDate: string): string {
   if (!feeDate) return getCurrentMonth();
-  const parts = feeDate.split("-");
-  if (parts.length >= 2) return `${parts[0]}-${parts[1].padStart(2, "0")}`;
+  const normalized = normalizeExcelDate(feeDate);
+  const parts = normalized.split("-");
+  if (parts.length >= 2 && parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, "0")}`;
   return getCurrentMonth();
 }
 
@@ -179,10 +203,30 @@ export async function registerRoutes(
   });
 
   app.post("/api/fees", async (req, res) => {
-    const parsed = insertFeeSchema.safeParse(req.body);
+    const { templateId, ...rest } = req.body;
+    const parsed = insertFeeSchema.safeParse(rest);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     try {
-      const fee = await storage.createFee(parsed.data);
+      let data = { ...parsed.data };
+      const template = templateId ? await storage.getRuleTemplate(Number(templateId)) : null;
+      if (template) {
+        const startMonth = data.startMonth || feeeDateToMonth(data.feeDate || "");
+        const amortMonths = data.amortMonths || template.defaultMonths || 12;
+        const endMonth = addMonths(startMonth, amortMonths);
+        data = {
+          ...data,
+          amortMonths,
+          startMonth,
+          endMonth,
+          debitAccountId: data.debitAccountId ?? template.debitAccountId ?? null,
+          creditAccountId: data.creditAccountId ?? template.creditAccountId ?? null,
+        };
+      }
+      let fee = await storage.createFee(data);
+      if (template && fee.startMonth && fee.endMonth) {
+        await generateEntriesForFee(fee.id);
+        fee = (await storage.updateFee(fee.id, { amortConfigured: true })) ?? fee;
+      }
       res.json(fee);
     } catch (e: any) {
       res.status(400).json({ message: e.message });
@@ -242,7 +286,7 @@ export async function registerRoutes(
         const feeCode = String(row["单号"] || row["费用编号"] || row["feeCode"] || "").trim();
         const feeName = String(row["标题"] || row["费用名称"] || row["feeName"] || "").trim();
         const entityName = String(row["支付公司"] || row["entity"] || "").trim();
-        const feeDate = String(row["支付日期"] || row["费用发生日期"] || row["feeDate"] || "").trim();
+        const feeDate = normalizeExcelDate(String(row["支付日期"] || row["费用发生日期"] || row["feeDate"] || "").trim());
         const feeTypeName = String(row["费用类型名称"] || row["category"] || "").trim();
         const totalAmount = String(row["金额"] || row["总金额"] || row["totalAmount"] || "0");
         const sourceRef = String(row["消费事由"] || row["来源单据号"] || row["sourceRef"] || "").trim();
