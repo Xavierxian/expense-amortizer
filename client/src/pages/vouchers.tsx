@@ -13,7 +13,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { FileText, Sparkles, Copy, Check } from "lucide-react";
+import { FileText, Sparkles, Copy, Check, Download } from "lucide-react";
+import * as XLSX from "xlsx";
 import type { Voucher, Entity } from "@shared/schema";
 
 function getCurrentMonth(): string {
@@ -77,6 +78,31 @@ export default function VouchersPage() {
     toast({ title: "已复制 JSON 到剪贴板" });
   };
 
+  const handleExportExcel = () => {
+    const rows = voucherList.map((v) => ({
+      凭证号: v.voucherNo,
+      日期: v.voucherDate,
+      摘要: v.summary,
+      借方科目代码: v.debitAccountCode || "",
+      借方科目名称: v.debitAccountName || "",
+      贷方科目代码: v.creditAccountCode || "",
+      贷方科目名称: v.creditAccountName || "",
+      金额: Number(v.amount),
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [
+      { wch: 18 }, { wch: 12 }, { wch: 40 },
+      { wch: 14 }, { wch: 20 }, { wch: 14 }, { wch: 20 }, { wch: 14 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "凭证列表");
+    const entitySuffix = selectedEntityId && selectedEntityId !== "all"
+      ? `_${entityList.find(e => e.id === Number(selectedEntityId))?.code || selectedEntityId}`
+      : "";
+    XLSX.writeFile(wb, `凭证_${month}${entitySuffix}.xlsx`);
+    toast({ title: "导出成功", description: `已导出 ${rows.length} 张凭证` });
+  };
+
   const totalAmount = voucherList.reduce((sum, v) => sum + Number(v.amount), 0);
 
   const selectedEntityName = selectedEntityId && selectedEntityId !== "all"
@@ -119,10 +145,16 @@ export default function VouchersPage() {
             {generateMutation.isPending ? "生成中..." : "批量生成凭证"}
           </Button>
           {voucherList.length > 0 && (
-            <Button variant="secondary" onClick={handleCopyJson} data-testid="button-copy-json">
-              {copied ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
-              {copied ? "已复制" : "复制 JSON"}
-            </Button>
+            <>
+              <Button variant="secondary" onClick={handleCopyJson} data-testid="button-copy-json">
+                {copied ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
+                {copied ? "已复制" : "复制 JSON"}
+              </Button>
+              <Button variant="outline" onClick={handleExportExcel} data-testid="button-export-excel">
+                <Download className="w-4 h-4 mr-1" />
+                导出 Excel
+              </Button>
+            </>
           )}
         </div>
       </div>
