@@ -13,7 +13,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { FileText, Sparkles, Copy, Check, Download } from "lucide-react";
+import { FileText, Sparkles, Copy, Check, Download, Trash2 } from "lucide-react";
 import * as XLSX from "xlsx";
 import type { Voucher, Entity } from "@shared/schema";
 
@@ -59,6 +59,22 @@ export default function VouchersPage() {
     },
     onError: (e: Error) => {
       toast({ title: "生成失败", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const deleteVoucherMutation = useMutation({
+    mutationFn: async (entryId: number) => {
+      const res = await apiRequest("DELETE", `/api/vouchers/${entryId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vouchers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/amort-table"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      toast({ title: "凭证已删除", description: "可重新生成凭证" });
+    },
+    onError: (e: Error) => {
+      toast({ title: "删除失败", description: e.message, variant: "destructive" });
     },
   });
 
@@ -208,6 +224,7 @@ export default function VouchersPage() {
                     <TableHead>借方科目</TableHead>
                     <TableHead>贷方科目</TableHead>
                     <TableHead className="text-right">金额</TableHead>
+                    <TableHead className="text-center">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -224,6 +241,17 @@ export default function VouchersPage() {
                       </TableCell>
                       <TableCell className="text-right font-mono font-semibold">
                         ¥{Number(v.amount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => deleteVoucherMutation.mutate(v.entryId)}
+                          disabled={deleteVoucherMutation.isPending}
+                          title="删除凭证"
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}

@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Plus, Trash2, Search, FileSpreadsheet, Settings2, ArrowRight, Download, Zap } from "lucide-react";
+import { Upload, Plus, Trash2, Search, FileSpreadsheet, Settings2, ArrowRight, Download, Zap, RefreshCw } from "lucide-react";
 import type { Fee, InsertFee, Account, Entity, RuleTemplate } from "@shared/schema";
 
 function addMonthsFn(yearMonth: string, count: number): string {
@@ -203,6 +203,25 @@ export default function FeesPage() {
     },
     onError: (e: Error) => {
       toast({ title: "批量生成失败", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const regenerateAmortMutation = useMutation({
+    mutationFn: async (feeId: number) => {
+      const res = await apiRequest("POST", `/api/regenerate-fee-amort/${feeId}`, {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/fees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/amort-table"] });
+      toast({
+        title: "摊销已重新生成",
+        description: `已生成 ${data.entriesCount} 期摊销明细`,
+      });
+    },
+    onError: (e: Error) => {
+      toast({ title: "重新生成失败", description: e.message, variant: "destructive" });
     },
   });
 
@@ -399,6 +418,18 @@ export default function FeesPage() {
                             <Settings2 className="w-3.5 h-3.5 mr-1" />
                             {fee.amortConfigured ? "修改" : "配置"}
                           </Button>
+                          {fee.amortConfigured && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => regenerateAmortMutation.mutate(fee.id)}
+                              disabled={regenerateAmortMutation.isPending}
+                              title="重新生成摊销"
+                              data-testid={`button-regenerate-${fee.id}`}
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                            </Button>
+                          )}
                           <Button
                             size="icon"
                             variant="ghost"

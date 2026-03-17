@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -11,8 +13,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
-import { CalendarRange } from "lucide-react";
+import { CalendarRange, Trash2 } from "lucide-react";
 import { Link } from "wouter";
+import { useToast } from "@/hooks/use-toast";
 import type { AmortizationEntryWithDetails, Entity } from "@shared/schema";
 
 function getCurrentMonth(): string {
@@ -21,6 +24,7 @@ function getCurrentMonth(): string {
 }
 
 export default function AmortTablePage() {
+  const { toast } = useToast();
   const [month, setMonth] = useState(getCurrentMonth());
   const [selectedEntityId, setSelectedEntityId] = useState<string>("");
 
@@ -31,6 +35,21 @@ export default function AmortTablePage() {
   const entityParam = selectedEntityId && selectedEntityId !== "all" ? `&entityId=${selectedEntityId}` : "";
   const { data: entries = [], isLoading } = useQuery<AmortizationEntryWithDetails[]>({
     queryKey: ["/api/amort-table", `?month=${month}${entityParam}`],
+  });
+
+  const deleteEntryMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/entries/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/amort-table"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      toast({ title: "摊销明细已删除" });
+    },
+    onError: (e: Error) => {
+      toast({ title: "删除失败", description: e.message, variant: "destructive" });
+    },
   });
 
   const totalAmount = entries.reduce((sum, e) => sum + Number(e.amount), 0);
@@ -119,6 +138,7 @@ export default function AmortTablePage() {
                     <TableHead>借方科目</TableHead>
                     <TableHead>贷方科目</TableHead>
                     <TableHead>凭证状态</TableHead>
+                    <TableHead className="text-center">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -146,6 +166,19 @@ export default function AmortTablePage() {
                           <Badge variant="default" data-testid={`badge-voucher-${entry.id}`}>已生成</Badge>
                         ) : (
                           <Badge variant="secondary" data-testid={`badge-voucher-${entry.id}`}>未生成</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {!entry.voucherGenerated && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => deleteEntryMutation.mutate(entry.id)}
+                            disabled={deleteEntryMutation.isPending}
+                            title="删除摊销明细"
+                          >
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
                         )}
                       </TableCell>
                     </TableRow>

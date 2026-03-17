@@ -419,6 +419,42 @@ export async function registerRoutes(
     }
   });
 
+  // 重新生成指定费用的摊销明细（用于已删除摊销后重新生成）
+  app.post("/api/regenerate-fee-amort/:id", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const fee = await storage.getFee(id);
+      
+      if (!fee) {
+        return res.status(404).json({ message: "费用不存在" });
+      }
+      
+      if (!fee.amortMonths || !fee.startMonth || !fee.endMonth) {
+        return res.status(400).json({ message: "费用未配置摊销规则" });
+      }
+      
+      // 检查是否有关联的未删除凭证
+      const entries = await storage.getEntriesByFeeId(id);
+      const entriesWithVoucher = entries.filter(e => e.voucherGenerated);
+      if (entriesWithVoucher.length > 0) {
+        return res.status(400).json({ message: "该费用存在已生成凭证的摊销，请先删除凭证" });
+      }
+      
+      // 删除现有摊销（如果有）并重新生成
+      await storage.deleteEntriesByFeeId(id);
+      const entriesCount = await generateEntriesForFee(id);
+      
+      // 确保 amortConfigured 为 true
+      if (!fee.amortConfigured) {
+        await storage.updateFee(id, { amortConfigured: true });
+      }
+      
+      res.json({ success: true, entriesCount, message: "摊销明细已重新生成" });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
   app.get("/api/amort-table", async (req, res) => {
     const month = (req.query.month as string) || getCurrentMonth();
     const entityId = req.query.entityId ? Number(req.query.entityId) : undefined;
@@ -488,6 +524,49 @@ export async function registerRoutes(
     const entityId = req.query.entityId ? Number(req.query.entityId) : undefined;
     const list = await storage.getVouchersByMonth(month, entityId);
     res.json(list);
+  });
+
+  // 删除凭证 API - 删除凭证并重置对应摊销的 voucherGenerated 状态
+  app.delete("/api/vouchers/:id", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const voucher = await storage.getVoucherByEntryId(id);
+      if (!voucher) {
+        return res.status(404).json({ message: "凭证不存在" });
+      }
+      
+      // 删除凭证
+      await storage.deleteVoucher(voucher.id);
+      
+      // 重置对应摊销明细的凭证生成状态
+      await storage.unmarkEntryVoucherGenerated(voucher.entryId);
+      
+      res.json({ success: true, message: "凭证已删除，可重新生成" });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  // 删除摊销明细 API - 只有未生成凭证的才能删除
+  app.delete("/api/entries/:id", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const entry = await storage.getEntry(id);
+      
+      if (!entry) {
+        return res.status(404).json({ message: "摊销明细不存在" });
+      }
+      
+      // 检查是否已生成凭证
+      if (entry.voucherGenerated) {
+        return res.status(400).json({ message: "该摊销已生成凭证，请先删除凭证后再删除摊销" });
+      }
+      
+      await storage.deleteEntry(id);
+      res.json({ success: true, message: "摊销明细已删除" });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
   });
 
   return httpServer;

@@ -42,12 +42,17 @@ export interface IStorage {
 
   getEntriesByMonth(month: string, entityId?: number): Promise<AmortizationEntryWithDetails[]>;
   getEntriesByFeeId(feeId: number): Promise<AmortizationEntry[]>;
+  getEntry(id: number): Promise<AmortizationEntry | undefined>;
   createEntry(data: InsertAmortizationEntry): Promise<AmortizationEntry>;
+  deleteEntry(id: number): Promise<boolean>;
   deleteEntriesByFeeId(feeId: number): Promise<void>;
   markEntryVoucherGenerated(entryId: number): Promise<void>;
+  unmarkEntryVoucherGenerated(entryId: number): Promise<void>;
 
   getVouchersByMonth(month: string, entityId?: number): Promise<Voucher[]>;
   createVoucher(data: InsertVoucher): Promise<Voucher>;
+  deleteVoucher(id: number): Promise<boolean>;
+  getVoucherByEntryId(entryId: number): Promise<Voucher | undefined>;
   getVoucherCount(): Promise<number>;
 
   getDashboardStats(currentMonth: string): Promise<DashboardStats>;
@@ -240,6 +245,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(amortizationEntries).where(eq(amortizationEntries.feeId, feeId)).orderBy(amortizationEntries.month);
   }
 
+  async getEntry(id: number): Promise<AmortizationEntry | undefined> {
+    const [entry] = await db.select().from(amortizationEntries).where(eq(amortizationEntries.id, id));
+    return entry;
+  }
+
   async createEntry(data: InsertAmortizationEntry): Promise<AmortizationEntry> {
     const [entry] = await db.insert(amortizationEntries).values(data).returning();
     return entry;
@@ -249,8 +259,17 @@ export class DatabaseStorage implements IStorage {
     await db.delete(amortizationEntries).where(eq(amortizationEntries.feeId, feeId));
   }
 
+  async deleteEntry(id: number): Promise<boolean> {
+    const result = await db.delete(amortizationEntries).where(eq(amortizationEntries.id, id)).returning();
+    return result.length > 0;
+  }
+
   async markEntryVoucherGenerated(entryId: number): Promise<void> {
     await db.update(amortizationEntries).set({ voucherGenerated: true }).where(eq(amortizationEntries.id, entryId));
+  }
+
+  async unmarkEntryVoucherGenerated(entryId: number): Promise<void> {
+    await db.update(amortizationEntries).set({ voucherGenerated: false }).where(eq(amortizationEntries.id, entryId));
   }
 
   async getVouchersByMonth(month: string, entityId?: number): Promise<Voucher[]> {
@@ -262,6 +281,16 @@ export class DatabaseStorage implements IStorage {
 
   async createVoucher(data: InsertVoucher): Promise<Voucher> {
     const [voucher] = await db.insert(vouchers).values(data).returning();
+    return voucher;
+  }
+
+  async deleteVoucher(id: number): Promise<boolean> {
+    const result = await db.delete(vouchers).where(eq(vouchers.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getVoucherByEntryId(entryId: number): Promise<Voucher | undefined> {
+    const [voucher] = await db.select().from(vouchers).where(eq(vouchers.entryId, entryId));
     return voucher;
   }
 
