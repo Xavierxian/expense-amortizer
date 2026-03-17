@@ -55,7 +55,7 @@ export type RuleTemplate = typeof ruleTemplates.$inferSelect;
 export const fees = pgTable("fees", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   entityId: integer("entity_id").notNull().references(() => entities.id),
-  feeCode: varchar("fee_code", { length: 100 }).notNull().unique(),
+  feeCode: varchar("fee_code", { length: 100 }).notNull(),
   feeName: varchar("fee_name", { length: 500 }).notNull(),
   totalAmount: numeric("total_amount", { precision: 18, scale: 2 }).notNull(),
   feeDate: varchar("fee_date", { length: 10 }).notNull(),

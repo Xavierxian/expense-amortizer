@@ -293,9 +293,6 @@ export async function registerRoutes(
 
         if (!feeCode || !feeName) { skipped++; continue; }
 
-        const existing = await storage.getFeeByCode(feeCode);
-        if (existing) { skipped++; continue; }
-
         // Resolve entity (find or auto-create from 支付公司)
         let entityId: number;
         if (entityName) {
