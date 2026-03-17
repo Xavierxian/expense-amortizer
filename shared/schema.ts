@@ -61,6 +61,7 @@ export const fees = pgTable("fees", {
   feeDate: varchar("fee_date", { length: 10 }).notNull(),
   sourceRef: varchar("source_ref", { length: 200 }),
   sourceSystem: varchar("source_system", { length: 100 }),
+  department: varchar("department", { length: 200 }),
   amortMonths: integer("amort_months"),
   startMonth: varchar("start_month", { length: 7 }),
   endMonth: varchar("end_month", { length: 7 }),
@@ -78,6 +79,7 @@ export const insertFeeSchema = z.object({
   feeDate: z.string(),
   sourceRef: z.string().nullable().optional(),
   sourceSystem: z.string().nullable().optional(),
+  department: z.string().nullable().optional(),
   amortMonths: z.number().nullable().optional(),
   startMonth: z.string().nullable().optional(),
   endMonth: z.string().nullable().optional(),
@@ -116,6 +118,7 @@ export const vouchers = pgTable("vouchers", {
   voucherDate: varchar("voucher_date", { length: 10 }).notNull(),
   month: varchar("month", { length: 7 }).notNull(),
   summary: text("summary").notNull(),
+  department: varchar("department", { length: 200 }),
   debitAccountCode: varchar("debit_account_code", { length: 50 }).notNull(),
   debitAccountName: varchar("debit_account_name", { length: 200 }).notNull(),
   creditAccountCode: varchar("credit_account_code", { length: 50 }).notNull(),
@@ -132,6 +135,7 @@ export const insertVoucherSchema = z.object({
   voucherDate: z.string(),
   month: z.string(),
   summary: z.string(),
+  department: z.string().nullable().optional(),
   debitAccountCode: z.string(),
   debitAccountName: z.string(),
   creditAccountCode: z.string(),
@@ -148,6 +152,7 @@ export type AmortizationEntryWithDetails = AmortizationEntry & {
   feeCode: string;
   entityId: number;
   entityName?: string;
+  department?: string;
   debitAccountName?: string;
   creditAccountName?: string;
   debitAccountCode?: string;

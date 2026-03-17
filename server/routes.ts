@@ -243,14 +243,14 @@ export async function registerRoutes(
 
   app.get("/api/import-template", (_req, res) => {
     const wb = XLSX.utils.book_new();
-    const header = ["单号", "标题", "支付公司", "支付日期", "费用类型名称", "金额", "消费事由"];
+    const header = ["单号", "标题", "支付公司", "支付日期", "费用类型名称", "金额", "消费事由", "承担部门"];
     const sample = [
-      ["B25001295", "万达项目2010房间第2月房租4500元（3月）", "北京百胜星联科技有限公司", "2025-03-28", "差旅费/长期租房", 4500.00, "万达项目2010房间第2月房租4500元"],
-      ["B25001433", "支付2025年4月1日—4月30日房租+物业+2月电费", "上海百胜软件股份有限公司深圳分公司", "2025-03-26", "行政费/房租及物业", 34520.36, "支付2025年4月1日—4月30日房租+物业+2月电费"],
-      ["B25001210", "2025年4月办公区房租租金", "上海百胜软件股份有限公司", "2025-05-09", "行政费/房租及物业", 447121.35, "2025年4月办公区房租租金"],
+      ["B25001295", "万达项目2010房间第2月房租4500元（3月）", "北京百胜星联科技有限公司", "2025-03-28", "差旅费/长期租房", 4500.00, "万达项目2010房间第2月房租4500元", "行政部"],
+      ["B25001433", "支付2025年4月1日—4月30日房租+物业+2月电费", "上海百胜软件股份有限公司深圳分公司", "2025-03-26", "行政费/房租及物业", 34520.36, "支付2025年4月1日—4月30日房租+物业+2月电费", "深圳分公司"],
+      ["B25001210", "2025年4月办公区房租租金", "上海百胜软件股份有限公司", "2025-05-09", "行政费/房租及物业", 447121.35, "2025年4月办公区房租租金", "行政部"],
     ];
     const ws = XLSX.utils.aoa_to_sheet([header, ...sample]);
-    ws["!cols"] = [{ wch: 14 }, { wch: 30 }, { wch: 24 }, { wch: 14 }, { wch: 20 }, { wch: 12 }, { wch: 30 }];
+    ws["!cols"] = [{ wch: 14 }, { wch: 30 }, { wch: 24 }, { wch: 14 }, { wch: 20 }, { wch: 12 }, { wch: 30 }, { wch: 16 }];
     XLSX.utils.book_append_sheet(wb, ws, "费用导入模板");
     const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
     res.setHeader("Content-Disposition", 'attachment; filename="fee_import_template.xlsx"');
@@ -290,6 +290,7 @@ export async function registerRoutes(
         const feeTypeName = String(row["费用类型名称"] || row["category"] || "").trim();
         const totalAmount = String(row["金额"] || row["总金额"] || row["totalAmount"] || "0");
         const sourceRef = String(row["消费事由"] || row["来源单据号"] || row["sourceRef"] || "").trim();
+        const department = String(row["承担部门"] || row["department"] || "").trim();
 
         if (!feeCode || !feeName) { skipped++; continue; }
 
@@ -324,6 +325,7 @@ export async function registerRoutes(
               template = await storage.createRuleTemplate({
                 name: feeTypeName,
                 defaultMonths: 12,
+                method: "monthly",
                 debitAccountId: null,
                 creditAccountId: null,
               });
@@ -347,6 +349,7 @@ export async function registerRoutes(
           feeDate,
           sourceRef: sourceRef || null,
           sourceSystem: null,
+          department: department || null,
           amortMonths,
           startMonth,
           endMonth,
@@ -485,33 +488,61 @@ export async function registerRoutes(
         });
       }
 
+      // 按承担部门+借方科目+贷方科目分组汇总
+      type EntryWithDetails = typeof ungenerated[0];
+      const groupKey = (e: EntryWithDetails) => `${e.department || ''}|${e.debitAccountCode}|${e.creditAccountCode}`;
+      const groups = new Map<string, EntryWithDetails[]>();
+      
+      for (const entry of ungenerated) {
+        const key = groupKey(entry);
+        if (!groups.has(key)) {
+          groups.set(key, []);
+        }
+        groups.get(key)!.push(entry);
+      }
+
       const voucherCount = await storage.getVoucherCount();
       let counter = voucherCount + 1;
       const generated: any[] = [];
 
-      for (const entry of ungenerated) {
+      Array.from(groups.entries()).forEach(async ([key, groupEntries]) => {
+        const [department] = key.split('|');
+        const totalAmount = groupEntries.reduce((sum: number, e: EntryWithDetails) => sum + Number(e.amount), 0);
+        const firstEntry = groupEntries[0];
+        
         const voucherNo = `PZ-${month.replace("-", "")}-${String(counter).padStart(4, "0")}`;
         const voucherDate = `${month}-01`;
+        
+        // 生成摘要：包含费用名称列表（最多3个）
+        const feeNames = Array.from(new Set(groupEntries.map((e: EntryWithDetails) => e.feeName)));
+        const summaryFeeNames = feeNames.slice(0, 3).join("、");
+        const moreCount = feeNames.length > 3 ? `等${feeNames.length}笔` : "";
+        const summary = `${summaryFeeNames}${moreCount} ${month} 摊销`;
 
         const voucher = await storage.createVoucher({
           entityId,
           voucherNo,
           voucherDate,
           month,
-          summary: `${entry.feeName} ${month} 摊销`,
-          debitAccountCode: entry.debitAccountCode || "",
-          debitAccountName: entry.debitAccountName || "",
-          creditAccountCode: entry.creditAccountCode || "",
-          creditAccountName: entry.creditAccountName || "",
-          amount: entry.amount,
-          feeId: entry.feeId,
-          entryId: entry.id,
+          summary,
+          department: department || null,
+          debitAccountCode: firstEntry.debitAccountCode || "",
+          debitAccountName: firstEntry.debitAccountName || "",
+          creditAccountCode: firstEntry.creditAccountCode || "",
+          creditAccountName: firstEntry.creditAccountName || "",
+          amount: totalAmount.toFixed(2),
+          feeId: firstEntry.feeId,
+          entryId: firstEntry.id,
         });
 
-        await storage.markEntryVoucherGenerated(entry.id);
+        // 标记该组所有摊销记录为已生成凭证
+        for (const entry of groupEntries) {
+          await storage.markEntryVoucherGenerated(entry.id);
+        }
+        
         generated.push(voucher);
         counter++;
-      }
+      });
 
       res.json({ generated: generated.length, vouchers: generated });
     } catch (e: any) {

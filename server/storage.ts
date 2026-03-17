@@ -188,6 +188,7 @@ export class DatabaseStorage implements IStorage {
         feeName: fees.feeName,
         feeCode: fees.feeCode,
         entityId: fees.entityId,
+        department: fees.department,
         feeDebitAccountId: fees.debitAccountId,
         feeCreditAccountId: fees.creditAccountId,
       })
@@ -232,6 +233,7 @@ export class DatabaseStorage implements IStorage {
         feeCode: row.feeCode,
         entityId: row.entityId,
         entityName: entityCache[row.entityId]?.name,
+        department: row.department || undefined,
         debitAccountName,
         creditAccountName,
         debitAccountCode,

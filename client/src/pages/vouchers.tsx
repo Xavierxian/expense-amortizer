@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { FileText, Sparkles, Copy, Check, Download, Trash2 } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -83,6 +84,7 @@ export default function VouchersPage() {
       voucherNo: v.voucherNo,
       date: v.voucherDate,
       summary: v.summary,
+      department: v.department,
       entries: [
         { direction: "debit", accountCode: v.debitAccountCode, accountName: v.debitAccountName, amount: v.amount },
         { direction: "credit", accountCode: v.creditAccountCode, accountName: v.creditAccountName, amount: v.amount },
@@ -99,6 +101,7 @@ export default function VouchersPage() {
       凭证号: v.voucherNo,
       日期: v.voucherDate,
       摘要: v.summary,
+      承担部门: v.department || "-",
       借方科目代码: v.debitAccountCode || "",
       借方科目名称: v.debitAccountName || "",
       贷方科目代码: v.creditAccountCode || "",
@@ -107,7 +110,7 @@ export default function VouchersPage() {
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     ws["!cols"] = [
-      { wch: 18 }, { wch: 12 }, { wch: 40 },
+      { wch: 18 }, { wch: 12 }, { wch: 40 }, { wch: 16 },
       { wch: 14 }, { wch: 20 }, { wch: 14 }, { wch: 20 }, { wch: 14 },
     ];
     const wb = XLSX.utils.book_new();
@@ -221,6 +224,7 @@ export default function VouchersPage() {
                     <TableHead>凭证号</TableHead>
                     <TableHead>日期</TableHead>
                     <TableHead>摘要</TableHead>
+                    <TableHead>承担部门</TableHead>
                     <TableHead>借方科目</TableHead>
                     <TableHead>贷方科目</TableHead>
                     <TableHead className="text-right">金额</TableHead>
@@ -233,6 +237,9 @@ export default function VouchersPage() {
                       <TableCell className="font-mono text-sm">{v.voucherNo}</TableCell>
                       <TableCell>{v.voucherDate}</TableCell>
                       <TableCell className="max-w-[240px] truncate">{v.summary}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">{v.department || "-"}</Badge>
+                      </TableCell>
                       <TableCell className="text-sm">
                         {v.debitAccountCode ? `${v.debitAccountCode} ${v.debitAccountName}` : "-"}
                       </TableCell>

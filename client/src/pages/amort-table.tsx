@@ -13,10 +13,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
-import { CalendarRange, Trash2 } from "lucide-react";
+import { CalendarRange, Trash2, Download } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import type { AmortizationEntryWithDetails, Entity } from "@shared/schema";
+import * as XLSX from "xlsx";
+import type { AmortizationEntryWithDetails, Entity, Account } from "@shared/schema";
 
 function getCurrentMonth(): string {
   const now = new Date();
@@ -27,15 +28,31 @@ export default function AmortTablePage() {
   const { toast } = useToast();
   const [month, setMonth] = useState(getCurrentMonth());
   const [selectedEntityId, setSelectedEntityId] = useState<string>("");
+  const [selectedDebitAccount, setSelectedDebitAccount] = useState<string>("");
 
   const { data: entityList = [] } = useQuery<Entity[]>({
     queryKey: ["/api/entities"],
+  });
+
+  const { data: accounts = [] } = useQuery<Account[]>({
+    queryKey: ["/api/accounts"],
   });
 
   const entityParam = selectedEntityId && selectedEntityId !== "all" ? `&entityId=${selectedEntityId}` : "";
   const { data: entries = [], isLoading } = useQuery<AmortizationEntryWithDetails[]>({
     queryKey: ["/api/amort-table", `?month=${month}${entityParam}`],
   });
+
+  // 获取所有借方科目（去重）
+  const debitAccounts = Array.from(new Set(entries
+    .filter(e => e.debitAccountCode)
+    .map(e => ({ code: e.debitAccountCode!, name: e.debitAccountName! }))
+  ));
+
+  // 筛选后的数据
+  const filteredEntries = selectedDebitAccount && selectedDebitAccount !== "all"
+    ? entries.filter(e => e.debitAccountCode === selectedDebitAccount)
+    : entries;
 
   const deleteEntryMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -52,7 +69,38 @@ export default function AmortTablePage() {
     },
   });
 
-  const totalAmount = entries.reduce((sum, e) => sum + Number(e.amount), 0);
+  const totalAmount = filteredEntries.reduce((sum, e) => sum + Number(e.amount), 0);
+
+  const handleExportExcel = () => {
+    const rows = filteredEntries.map((e) => ({
+      摊销月份: e.month,
+      费用编号: e.feeCode,
+      费用名称: e.feeName,
+      所属主体: e.entityName || "-",
+      承担部门: e.department || "-",
+      本月摊销: Number(e.amount),
+      累计已摊销: Number(e.cumulativeAmount),
+      剩余未摊销: Number(e.remainingAmount),
+      借方科目: e.debitAccountCode ? `${e.debitAccountCode} ${e.debitAccountName}` : "-",
+      贷方科目: e.creditAccountCode ? `${e.creditAccountCode} ${e.creditAccountName}` : "-",
+      凭证状态: e.voucherGenerated ? "已生成" : "未生成",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [
+      { wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 24 }, { wch: 16 },
+      { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 24 }, { wch: 24 }, { wch: 10 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "摊销明细");
+    const entitySuffix = selectedEntityId && selectedEntityId !== "all"
+      ? `_${entityList.find(e => e.id === Number(selectedEntityId))?.code || selectedEntityId}`
+      : "";
+    const accountSuffix = selectedDebitAccount && selectedDebitAccount !== "all"
+      ? `_${selectedDebitAccount}`
+      : "";
+    XLSX.writeFile(wb, `摊销明细_${month}${entitySuffix}${accountSuffix}.xlsx`);
+    toast({ title: "导出成功", description: `已导出 ${rows.length} 条摊销明细` });
+  };
 
   const selectedEntityName = selectedEntityId && selectedEntityId !== "all"
     ? entityList.find(e => e.id === Number(selectedEntityId))?.name
@@ -77,6 +125,17 @@ export default function AmortTablePage() {
               ))}
             </SelectContent>
           </Select>
+          <Select value={selectedDebitAccount} onValueChange={setSelectedDebitAccount}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="全部借方科目" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部借方科目</SelectItem>
+              {debitAccounts.map((a) => (
+                <SelectItem key={a.code} value={a.code}>{a.code} {a.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Label className="text-sm text-muted-foreground whitespace-nowrap">月份:</Label>
           <Input
             type="month"
@@ -85,6 +144,12 @@ export default function AmortTablePage() {
             className="w-48"
             data-testid="input-select-month"
           />
+          {filteredEntries.length > 0 && (
+            <Button variant="outline" onClick={handleExportExcel}>
+              <Download className="w-4 h-4 mr-1" />
+              导出 Excel
+            </Button>
+          )}
         </div>
       </div>
 
@@ -93,7 +158,7 @@ export default function AmortTablePage() {
           <CardContent className="py-4">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="text-sm text-muted-foreground">
-                {selectedEntityName} · {month} 月度合计 ({entries.length} 条)
+                {selectedEntityName} · {month} 月度合计 ({filteredEntries.length} 条)
               </div>
               <div className="text-xl font-bold" data-testid="text-total-amount">
                 ¥{totalAmount.toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
@@ -112,7 +177,7 @@ export default function AmortTablePage() {
             <div className="space-y-2">
               {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
             </div>
-          ) : entries.length === 0 ? (
+          ) : filteredEntries.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <CalendarRange className="w-12 h-12 mx-auto mb-3 opacity-40" />
               <p className="text-sm font-medium">该月份无摊销数据</p>
@@ -132,6 +197,7 @@ export default function AmortTablePage() {
                     <TableHead>费用编号</TableHead>
                     <TableHead>费用名称</TableHead>
                     <TableHead>所属主体</TableHead>
+                    <TableHead>承担部门</TableHead>
                     <TableHead className="text-right">本月摊销</TableHead>
                     <TableHead className="text-right">累计已摊销</TableHead>
                     <TableHead className="text-right">剩余未摊销</TableHead>
@@ -142,13 +208,16 @@ export default function AmortTablePage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {entries.map((entry) => (
+                  {filteredEntries.map((entry) => (
                     <TableRow key={entry.id} data-testid={`row-entry-${entry.id}`}>
                       <TableCell className="font-mono">{entry.month}</TableCell>
                       <TableCell className="font-mono text-sm">{entry.feeCode}</TableCell>
                       <TableCell>{entry.feeName}</TableCell>
                       <TableCell>
                         <Badge variant="outline">{entry.entityName || "-"}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">{entry.department || "-"}</Badge>
                       </TableCell>
                       <TableCell className="text-right font-mono font-semibold">
                         ¥{Number(entry.amount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}

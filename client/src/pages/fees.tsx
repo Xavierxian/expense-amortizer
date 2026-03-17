@@ -368,6 +368,7 @@ export default function FeesPage() {
                     <TableHead>费用编号</TableHead>
                     <TableHead>费用名称</TableHead>
                     <TableHead>所属主体</TableHead>
+                    <TableHead>承担部门</TableHead>
                     <TableHead className="text-right">总金额</TableHead>
                     <TableHead>发生日期</TableHead>
                     <TableHead className="text-center">摊销月数</TableHead>
@@ -383,6 +384,9 @@ export default function FeesPage() {
                       <TableCell>{fee.feeName}</TableCell>
                       <TableCell>
                         <Badge variant="outline">{entityName(fee.entityId)}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">{fee.department || "-"}</Badge>
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         ¥{Number(fee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
