@@ -66,7 +66,7 @@ export default function FeesPage() {
   const [amortDialogOpen, setAmortDialogOpen] = useState(false);
   const [selectedFee, setSelectedFee] = useState<Fee | null>(null);
   const [formData, setFormData] = useState<Partial<InsertFee> & { templateId?: string }>({
-    entityId: 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "", templateId: "",
+    entityId: 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "", department: "", templateId: "",
   });
   const [amortForm, setAmortForm] = useState({
     amortMonths: 12,
@@ -143,7 +143,7 @@ export default function FeesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["/api/amort-table"] });
       setAddDialogOpen(false);
-      setFormData({ entityId: 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "", templateId: "" });
+      setFormData({ entityId: 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "", department: "", templateId: "" });
       toast({ title: "添加成功", description: fee.amortConfigured ? "已自动生成摊销明细" : "请在列表中配置摊销规则" });
     },
     onError: (e: Error) => {
@@ -311,7 +311,7 @@ export default function FeesPage() {
             {importMutation.isPending ? "导入中..." : "导入 Excel/CSV"}
           </Button>
           <Button variant="secondary" onClick={() => {
-            setFormData({ entityId: 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "", templateId: "" });
+            setFormData({ entityId: 0, feeCode: "", feeName: "", totalAmount: "", feeDate: "", sourceRef: "", sourceSystem: "", department: "", templateId: "" });
             setAddDialogOpen(true);
           }} data-testid="button-add-fee">
             <Plus className="w-4 h-4 mr-1" />
@@ -362,36 +362,38 @@ export default function FeesPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+            <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>费用编号</TableHead>
-                    <TableHead>费用名称</TableHead>
-                    <TableHead>所属主体</TableHead>
-                    <TableHead>承担部门</TableHead>
-                    <TableHead className="text-right">总金额</TableHead>
-                    <TableHead>发生日期</TableHead>
-                    <TableHead className="text-center">摊销月数</TableHead>
-                    <TableHead>摊销区间</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead className="w-28"></TableHead>
+                    <TableHead className="min-w-[100px] whitespace-nowrap">费用编号</TableHead>
+                    <TableHead className="min-w-[160px]">费用名称</TableHead>
+                    <TableHead className="min-w-[120px] whitespace-nowrap">所属主体</TableHead>
+                    <TableHead className="min-w-[100px] whitespace-nowrap">承担部门</TableHead>
+                    <TableHead className="min-w-[100px] whitespace-nowrap">费用类型</TableHead>
+                    <TableHead className="min-w-[100px] text-right whitespace-nowrap">总金额</TableHead>
+                    <TableHead className="min-w-[90px] whitespace-nowrap">发生日期</TableHead>
+                    <TableHead className="min-w-[70px] text-center whitespace-nowrap">摊销月数</TableHead>
+                    <TableHead className="min-w-[140px] whitespace-nowrap">摊销区间</TableHead>
+                    <TableHead className="min-w-[64px] whitespace-nowrap">状态</TableHead>
+                    <TableHead className="min-w-[100px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filtered.map((fee) => (
                     <TableRow key={fee.id} data-testid={`row-fee-${fee.id}`}>
-                      <TableCell className="font-mono text-sm">{fee.feeCode}</TableCell>
-                      <TableCell>{fee.feeName}</TableCell>
-                      <TableCell>
+                      <TableCell className="font-mono text-xs whitespace-nowrap">{fee.feeCode}</TableCell>
+                      <TableCell className="text-sm">{fee.feeName}</TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <Badge variant="outline">{entityName(fee.entityId)}</Badge>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <Badge variant="secondary">{fee.department || "-"}</Badge>
                       </TableCell>
-                      <TableCell className="text-right font-mono">
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{fee.feeType || "-"}</TableCell>
+                      <TableCell className="text-right font-mono text-sm whitespace-nowrap">
                         ¥{Number(fee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{normalizeDate(fee.feeDate)}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm whitespace-nowrap">{normalizeDate(fee.feeDate)}</TableCell>
                       <TableCell className="text-center">
                         {fee.amortMonths ? (
                           <Badge variant="secondary">{fee.amortMonths} 月</Badge>
@@ -399,7 +401,7 @@ export default function FeesPage() {
                           <span className="text-muted-foreground">-</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground font-mono">
+                      <TableCell className="text-xs text-muted-foreground font-mono">
                         {fee.startMonth && fee.endMonth ? (
                           <span>{fee.startMonth} ~ {fee.endMonth}</span>
                         ) : "-"}
@@ -502,6 +504,7 @@ export default function FeesPage() {
                   setFormData({
                     ...formData,
                     templateId: v,
+                    feeType: tmpl?.name ?? formData.feeType,
                     amortMonths: tmpl?.defaultMonths ?? formData.amortMonths,
                   });
                 }}
@@ -531,6 +534,10 @@ export default function FeesPage() {
             <div>
               <Label>金额 *</Label>
               <Input type="number" value={formData.totalAmount || ""} onChange={(e) => setFormData({ ...formData, totalAmount: e.target.value })} data-testid="input-fee-amount" placeholder="0.00" />
+            </div>
+            <div>
+              <Label>承担部门</Label>
+              <Input value={formData.department || ""} onChange={(e) => setFormData({ ...formData, department: e.target.value })} placeholder="输入承担此费用的部门" />
             </div>
             <div>
               <Label>消费事由</Label>

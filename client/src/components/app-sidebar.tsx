@@ -18,6 +18,7 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarHeader,
+  SidebarFooter,
 } from "@/components/ui/sidebar";
 
 const navItems = [
@@ -35,39 +36,55 @@ export function AppSidebar() {
 
   return (
     <Sidebar>
-      <SidebarHeader className="p-4">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-            <CalendarRange className="w-4 h-4 text-primary-foreground" />
+      <SidebarHeader className="px-4 py-5 border-b border-sidebar-border">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shadow-md flex-shrink-0">
+            <CalendarRange className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold" data-testid="text-app-title">费用摊销系统</h2>
-            <p className="text-xs text-muted-foreground">Amortization Manager</p>
+            <h2 className="text-sm font-bold text-sidebar-foreground tracking-wide" data-testid="text-app-title">费用摊销系统</h2>
+            <p className="text-xs text-sidebar-foreground/50 mt-0.5">Amortization Manager</p>
           </div>
         </div>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="px-2 py-3">
         <SidebarGroup>
-          <SidebarGroupLabel>功能菜单</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-xs font-semibold tracking-widest text-sidebar-foreground/40 uppercase px-3 mb-1">功能菜单</SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    data-active={location === item.url}
-                  >
-                    <Link href={item.url} data-testid={`nav-${item.url.replace("/", "") || "home"}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+            <SidebarMenu className="space-y-0.5">
+              {navItems.map((item) => {
+                const isActive = location === item.url;
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      data-active={isActive}
+                      className={`
+                        relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150
+                        ${isActive
+                          ? "bg-sidebar-primary text-white shadow-sm"
+                          : "text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                        }
+                      `}
+                    >
+                      <Link href={item.url} data-testid={`nav-${item.url.replace("/", "") || "home"}`}>
+                        {isActive && (
+                          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-white/80 rounded-r-full" />
+                        )}
+                        <item.icon className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-white" : "text-sidebar-foreground/80"}`} />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter className="px-4 py-3 border-t border-sidebar-border">
+        <p className="text-xs text-sidebar-foreground/30 text-center">费用摊销系统 v1.0</p>
+      </SidebarFooter>
     </Sidebar>
   );
 }

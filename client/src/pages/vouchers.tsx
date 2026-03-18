@@ -218,32 +218,32 @@ export default function VouchersPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+            <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>凭证号</TableHead>
-                    <TableHead>日期</TableHead>
-                    <TableHead>摘要</TableHead>
-                    <TableHead>承担部门</TableHead>
-                    <TableHead>借方科目</TableHead>
-                    <TableHead>贷方科目</TableHead>
-                    <TableHead className="text-right">金额</TableHead>
-                    <TableHead className="text-center">操作</TableHead>
+                    <TableHead className="min-w-[120px] whitespace-nowrap">凭证号</TableHead>
+                    <TableHead className="min-w-[90px] whitespace-nowrap">日期</TableHead>
+                    <TableHead className="min-w-[200px]">摘要</TableHead>
+                    <TableHead className="min-w-[100px] whitespace-nowrap">承担部门</TableHead>
+                    <TableHead className="min-w-[150px]">借方科目</TableHead>
+                    <TableHead className="min-w-[150px]">贷方科目</TableHead>
+                    <TableHead className="min-w-[100px] text-right whitespace-nowrap">金额</TableHead>
+                    <TableHead className="min-w-[48px] text-center whitespace-nowrap">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {voucherList.map((v) => (
                     <TableRow key={v.id} data-testid={`row-voucher-${v.id}`}>
-                      <TableCell className="font-mono text-sm">{v.voucherNo}</TableCell>
-                      <TableCell>{v.voucherDate}</TableCell>
-                      <TableCell className="max-w-[240px] truncate">{v.summary}</TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{v.department || "-"}</Badge>
+                      <TableCell className="font-mono text-xs whitespace-nowrap">{v.voucherNo}</TableCell>
+                      <TableCell className="text-sm whitespace-nowrap">{v.voucherDate}</TableCell>
+                      <TableCell className="text-sm">{v.summary}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <Badge variant="secondary" className="text-xs">{v.department || "-"}</Badge>
                       </TableCell>
-                      <TableCell className="text-sm">
+                      <TableCell className="text-xs">
                         {v.debitAccountCode ? `${v.debitAccountCode} ${v.debitAccountName}` : "-"}
                       </TableCell>
-                      <TableCell className="text-sm">
+                      <TableCell className="text-xs">
                         {v.creditAccountCode ? `${v.creditAccountCode} ${v.creditAccountName}` : "-"}
                       </TableCell>
                       <TableCell className="text-right font-mono font-semibold">

@@ -62,6 +62,7 @@ export const fees = pgTable("fees", {
   sourceRef: varchar("source_ref", { length: 200 }),
   sourceSystem: varchar("source_system", { length: 100 }),
   department: varchar("department", { length: 200 }),
+  feeType: varchar("fee_type", { length: 200 }),
   amortMonths: integer("amort_months"),
   startMonth: varchar("start_month", { length: 7 }),
   endMonth: varchar("end_month", { length: 7 }),
@@ -80,6 +81,7 @@ export const insertFeeSchema = z.object({
   sourceRef: z.string().nullable().optional(),
   sourceSystem: z.string().nullable().optional(),
   department: z.string().nullable().optional(),
+  feeType: z.string().nullable().optional(),
   amortMonths: z.number().nullable().optional(),
   startMonth: z.string().nullable().optional(),
   endMonth: z.string().nullable().optional(),
@@ -150,6 +152,7 @@ export type Voucher = typeof vouchers.$inferSelect;
 export type AmortizationEntryWithDetails = AmortizationEntry & {
   feeName: string;
   feeCode: string;
+  feeType?: string;
   entityId: number;
   entityName?: string;
   department?: string;

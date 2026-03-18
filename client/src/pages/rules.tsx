@@ -141,15 +141,15 @@ export default function RulesPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+            <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>费用类别名称</TableHead>
-                    <TableHead className="text-center">默认摊销月数</TableHead>
-                    <TableHead>借方科目</TableHead>
-                    <TableHead>贷方科目</TableHead>
-                    <TableHead>备注</TableHead>
-                    <TableHead className="w-24"></TableHead>
+                    <TableHead className="min-w-[140px] whitespace-nowrap">费用类别名称</TableHead>
+                    <TableHead className="min-w-[80px] text-center whitespace-nowrap">默认摊销月数</TableHead>
+                    <TableHead className="min-w-[160px]">借方科目</TableHead>
+                    <TableHead className="min-w-[160px]">贷方科目</TableHead>
+                    <TableHead className="min-w-[120px]">备注</TableHead>
+                    <TableHead className="min-w-[72px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -161,7 +161,7 @@ export default function RulesPage() {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{getAccountName(t.debitAccountId)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">{getAccountName(t.creditAccountId)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{t.remark || "-"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{t.remark || "-"}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <Button size="icon" variant="ghost" onClick={() => openEdit(t)} data-testid={`button-edit-template-${t.id}`}>

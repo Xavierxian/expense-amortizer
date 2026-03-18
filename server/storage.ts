@@ -189,6 +189,7 @@ export class DatabaseStorage implements IStorage {
         feeCode: fees.feeCode,
         entityId: fees.entityId,
         department: fees.department,
+        feeType: fees.feeType,
         feeDebitAccountId: fees.debitAccountId,
         feeCreditAccountId: fees.creditAccountId,
       })
@@ -231,6 +232,7 @@ export class DatabaseStorage implements IStorage {
         voucherGenerated: row.voucherGenerated,
         feeName: row.feeName,
         feeCode: row.feeCode,
+        feeType: row.feeType || undefined,
         entityId: row.entityId,
         entityName: entityCache[row.entityId]?.name,
         department: row.department || undefined,

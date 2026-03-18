@@ -42,8 +42,8 @@ function App() {
           <div className="flex h-screen w-full">
             <AppSidebar />
             <div className="flex flex-col flex-1 min-w-0">
-              <header className="flex items-center gap-2 p-2 border-b shrink-0">
-                <SidebarTrigger data-testid="button-sidebar-toggle" />
+              <header className="flex items-center gap-2 px-4 py-2.5 border-b bg-background shrink-0">
+                <SidebarTrigger data-testid="button-sidebar-toggle" className="text-muted-foreground hover:text-foreground" />
               </header>
               <main className="flex-1 overflow-auto">
                 <Router />

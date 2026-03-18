@@ -78,6 +78,7 @@ export default function AmortTablePage() {
       费用名称: e.feeName,
       所属主体: e.entityName || "-",
       承担部门: e.department || "-",
+      费用类型: e.feeType || "-",
       本月摊销: Number(e.amount),
       累计已摊销: Number(e.cumulativeAmount),
       剩余未摊销: Number(e.remainingAmount),
@@ -87,7 +88,7 @@ export default function AmortTablePage() {
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     ws["!cols"] = [
-      { wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 24 }, { wch: 16 },
+      { wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 24 }, { wch: 16 }, { wch: 16 },
       { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 24 }, { wch: 24 }, { wch: 10 },
     ];
     const wb = XLSX.utils.book_new();
@@ -190,46 +191,48 @@ export default function AmortTablePage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+            <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>摊销月份</TableHead>
-                    <TableHead>费用编号</TableHead>
-                    <TableHead>费用名称</TableHead>
-                    <TableHead>所属主体</TableHead>
-                    <TableHead>承担部门</TableHead>
-                    <TableHead className="text-right">本月摊销</TableHead>
-                    <TableHead className="text-right">累计已摊销</TableHead>
-                    <TableHead className="text-right">剩余未摊销</TableHead>
-                    <TableHead>借方科目</TableHead>
-                    <TableHead>贷方科目</TableHead>
-                    <TableHead>凭证状态</TableHead>
-                    <TableHead className="text-center">操作</TableHead>
+                    <TableHead className="min-w-[80px] whitespace-nowrap">摊销月份</TableHead>
+                    <TableHead className="min-w-[100px] whitespace-nowrap">费用编号</TableHead>
+                    <TableHead className="min-w-[160px]">费用名称</TableHead>
+                    <TableHead className="min-w-[120px] whitespace-nowrap">所属主体</TableHead>
+                    <TableHead className="min-w-[100px] whitespace-nowrap">承担部门</TableHead>
+                    <TableHead className="min-w-[100px] whitespace-nowrap">费用类型</TableHead>
+                    <TableHead className="min-w-[100px] text-right whitespace-nowrap">本月摊销</TableHead>
+                    <TableHead className="min-w-[100px] text-right whitespace-nowrap">累计已摊销</TableHead>
+                    <TableHead className="min-w-[100px] text-right whitespace-nowrap">剩余未摊销</TableHead>
+                    <TableHead className="min-w-[120px]">借方科目</TableHead>
+                    <TableHead className="min-w-[120px]">贷方科目</TableHead>
+                    <TableHead className="min-w-[70px] whitespace-nowrap">凭证状态</TableHead>
+                    <TableHead className="min-w-[48px] text-center whitespace-nowrap">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredEntries.map((entry) => (
                     <TableRow key={entry.id} data-testid={`row-entry-${entry.id}`}>
-                      <TableCell className="font-mono">{entry.month}</TableCell>
-                      <TableCell className="font-mono text-sm">{entry.feeCode}</TableCell>
-                      <TableCell>{entry.feeName}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{entry.entityName || "-"}</Badge>
+                      <TableCell className="font-mono text-xs whitespace-nowrap">{entry.month}</TableCell>
+                      <TableCell className="font-mono text-xs whitespace-nowrap">{entry.feeCode}</TableCell>
+                      <TableCell className="text-sm">{entry.feeName}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <Badge variant="outline" className="text-xs">{entry.entityName || "-"}</Badge>
                       </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{entry.department || "-"}</Badge>
+                      <TableCell className="whitespace-nowrap">
+                        <Badge variant="secondary" className="text-xs">{entry.department || "-"}</Badge>
                       </TableCell>
-                      <TableCell className="text-right font-mono font-semibold">
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{entry.feeType || "-"}</TableCell>
+                      <TableCell className="text-right font-mono text-sm font-semibold whitespace-nowrap">
                         ¥{Number(entry.amount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-muted-foreground">
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
                         ¥{Number(entry.cumulativeAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-muted-foreground">
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
                         ¥{Number(entry.remainingAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-sm">{entry.debitAccountName || "-"}</TableCell>
-                      <TableCell className="text-sm">{entry.creditAccountName || "-"}</TableCell>
+                      <TableCell className="text-xs">{entry.debitAccountName || "-"}</TableCell>
+                      <TableCell className="text-xs">{entry.creditAccountName || "-"}</TableCell>
                       <TableCell>
                         {entry.voucherGenerated ? (
                           <Badge variant="default" data-testid={`badge-voucher-${entry.id}`}>已生成</Badge>

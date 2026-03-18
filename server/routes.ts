@@ -350,6 +350,7 @@ export async function registerRoutes(
           sourceRef: sourceRef || null,
           sourceSystem: null,
           department: department || null,
+          feeType: feeTypeName || null,
           amortMonths,
           startMonth,
           endMonth,
