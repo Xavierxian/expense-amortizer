@@ -20,39 +20,49 @@ const aiClient = new OpenAI({
  * @param month 摊销月份
  * @param fallback 默认备用摘要
  */
+const AI_MODELS = ["DeepSeek-V3.2", "deepseek-v3-250324"];
+
 async function generateSummaryWithAI(
   feeNames: string[],
   month: string,
   fallback: string
 ): Promise<string> {
-  try {
-    const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-    if (!apiKey) return fallback;
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  if (!apiKey) return fallback;
 
-    const prompt = [
-      `以下是${month}月份费用摊销的费用名称列表：`,
-      feeNames.map((n, i) => `${i + 1}. ${n}`).join("\n"),
-      "",
-      `请为以上费用生成一条简洁的凭证摘要，要求：`,
-      `1. 概括费用类别和主要内容，不要列举具体费用名称`,
-      `2. 包含"${month}摊销"`,
-      `3. 长度不超过50个字`,
-      `4. 只返回摘要文字，不要加解释和引号`,
-    ].join("\n");
+  const prompt = [
+    `以下是${month}月份费用摊销的费用名称列表：`,
+    feeNames.map((n, i) => `${i + 1}. ${n}`).join("\n"),
+    "",
+    `请为以上费用生成一条简洁的凭证摘要，要求：`,
+    `1. 概括费用类别和主要内容，不要列举具体费用名称`,
+    `2. 包含"${month}摊销"`,
+    `3. 长度不超过50个字`,
+    `4. 只返回摘要文字，不要加解释和引号`,
+  ].join("\n");
 
-    const response = await aiClient.chat.completions.create({
-      model: "DeepSeek-V3.2",
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 100,
-      temperature: 0.3,
-    });
-
-    const result = response.choices[0]?.message?.content?.trim();
-    return result || fallback;
-  } catch (e) {
-    console.warn("[AI摘要] 生成失败，使用默认摘要:", (e as Error).message);
-    return fallback;
+  for (const model of AI_MODELS) {
+    try {
+      const response = await aiClient.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 100,
+        temperature: 0.3,
+      });
+      const result = response.choices[0]?.message?.content?.trim();
+      if (result) {
+        if (model !== AI_MODELS[0]) {
+          console.log(`[AI摘要] 主模型不可用，已切换到备用模型 ${model}`);
+        }
+        return result;
+      }
+    } catch (e) {
+      console.warn(`[AI摘要] 模型 ${model} 调用失败:`, (e as Error).message);
+    }
   }
+
+  console.warn("[AI摘要] 所有模型均失败，使用默认摘要");
+  return fallback;
 }
 
 function getCurrentMonth(): string {
