@@ -56,6 +56,9 @@ export interface IStorage {
   getVoucherCount(): Promise<number>;
 
   getDashboardStats(currentMonth: string): Promise<DashboardStats>;
+
+  // 批量删除所有业务数据（保留基础配置）
+  clearAllData(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -323,6 +326,13 @@ export class DatabaseStorage implements IStorage {
       ruleTemplateCount: Number(templateCount?.count ?? 0),
       entityCount: Number(entityCount?.count ?? 0),
     };
+  }
+
+  async clearAllData(): Promise<void> {
+    // 按外键依赖顺序删除：vouchers -> amortizationEntries -> fees
+    await db.delete(vouchers);
+    await db.delete(amortizationEntries);
+    await db.delete(fees);
   }
 }
 

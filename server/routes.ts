@@ -699,5 +699,15 @@ export async function registerRoutes(
     }
   });
 
+  // 清空所有业务数据（费用、摊销明细、凭证）
+  app.post("/api/clear-all-data", async (req, res) => {
+    try {
+      await storage.clearAllData();
+      res.json({ success: true, message: "所有业务数据已清空（费用、摊销明细、凭证）" });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
   return httpServer;
 }
