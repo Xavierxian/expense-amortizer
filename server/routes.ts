@@ -587,8 +587,6 @@ export async function registerRoutes(
         groups.get(key)!.push(entry);
       }
 
-      const voucherCount = await storage.getVoucherCount();
-      let counter = voucherCount + 1;
       const generated: any[] = [];
 
       for (const [key, groupEntries] of Array.from(groups.entries())) {
@@ -596,7 +594,10 @@ export async function registerRoutes(
         const totalAmount = groupEntries.reduce((sum: number, e: EntryWithDetails) => sum + Number(e.amount), 0);
         const firstEntry = groupEntries[0];
 
-        const voucherNo = `PZ-${month.replace("-", "")}-${String(counter).padStart(4, "0")}`;
+        // 使用时间戳+随机数确保凭证号唯一
+        const timestamp = Date.now();
+        const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+        const voucherNo = `PZ-${month.replace("-", "")}-${timestamp}${random}`;
         const voucherDate = `${month}-01`;
 
         // 构建默认备用摘要
@@ -630,7 +631,6 @@ export async function registerRoutes(
         }
 
         generated.push(voucher);
-        counter++;
       }
 
       res.json({ generated: generated.length, vouchers: generated });
