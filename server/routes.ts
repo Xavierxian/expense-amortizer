@@ -657,10 +657,12 @@ export async function registerRoutes(
   });
 
   // 删除凭证 API - 删除凭证并重置对应摊销的 voucherGenerated 状态
+  // 前端传入的是 entryId（摊销明细ID），需要通过 entryId 找到对应的凭证
   app.delete("/api/vouchers/:id", async (req, res) => {
     try {
-      const id = Number(req.params.id);
-      const voucher = await storage.getVoucher(id);
+      const entryId = Number(req.params.id);
+      // 通过 entryId 查找凭证（因为凭证创建时记录了 entryId）
+      const voucher = await storage.getVoucherByEntryId(entryId);
       if (!voucher) {
         return res.status(404).json({ message: "凭证不存在" });
       }
