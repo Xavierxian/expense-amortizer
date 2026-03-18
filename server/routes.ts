@@ -660,18 +660,29 @@ export async function registerRoutes(
   app.delete("/api/vouchers/:id", async (req, res) => {
     try {
       const id = Number(req.params.id);
-      const voucher = await storage.getVoucherByEntryId(id);
+      const voucher = await storage.getVoucher(id);
       if (!voucher) {
         return res.status(404).json({ message: "凭证不存在" });
       }
-      
+
       // 删除凭证
       await storage.deleteVoucher(voucher.id);
-      
-      // 重置对应摊销明细的凭证生成状态
-      await storage.unmarkEntryVoucherGenerated(voucher.entryId);
-      
-      res.json({ success: true, message: "凭证已删除，可重新生成" });
+
+      // 找到该凭证关联的所有摊销明细（同一月份、主体、部门、科目的摊销记录）
+      const relatedEntries = await storage.getEntriesByVoucherMatch(
+        voucher.month,
+        voucher.entityId,
+        voucher.department,
+        voucher.debitAccountCode,
+        voucher.creditAccountCode
+      );
+
+      // 重置所有关联摊销明细的凭证生成状态
+      for (const entry of relatedEntries) {
+        await storage.unmarkEntryVoucherGenerated(entry.id);
+      }
+
+      res.json({ success: true, message: `凭证已删除，${relatedEntries.length}条摊销记录已重置为未生成状态` });
     } catch (e: any) {
       res.status(400).json({ message: e.message });
     }

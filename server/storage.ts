@@ -50,10 +50,20 @@ export interface IStorage {
   unmarkEntryVoucherGenerated(entryId: number): Promise<void>;
 
   getVouchersByMonth(month: string, entityId?: number): Promise<Voucher[]>;
+  getVoucher(id: number): Promise<Voucher | undefined>;
   createVoucher(data: InsertVoucher): Promise<Voucher>;
   deleteVoucher(id: number): Promise<boolean>;
   getVoucherByEntryId(entryId: number): Promise<Voucher | undefined>;
   getVoucherCount(): Promise<number>;
+
+  // 根据凭证匹配条件查找关联的摊销明细
+  getEntriesByVoucherMatch(
+    month: string,
+    entityId: number,
+    department: string | null,
+    debitAccountCode: string,
+    creditAccountCode: string
+  ): Promise<AmortizationEntry[]>;
 
   getDashboardStats(currentMonth: string): Promise<DashboardStats>;
 
@@ -286,6 +296,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(vouchers).where(eq(vouchers.month, month)).orderBy(vouchers.voucherNo);
   }
 
+  async getVoucher(id: number): Promise<Voucher | undefined> {
+    const [voucher] = await db.select().from(vouchers).where(eq(vouchers.id, id));
+    return voucher;
+  }
+
   async createVoucher(data: InsertVoucher): Promise<Voucher> {
     const [voucher] = await db.insert(vouchers).values(data).returning();
     return voucher;
@@ -333,6 +348,49 @@ export class DatabaseStorage implements IStorage {
     await db.delete(vouchers);
     await db.delete(amortizationEntries);
     await db.delete(fees);
+  }
+
+  async getEntriesByVoucherMatch(
+    month: string,
+    entityId: number,
+    department: string | null,
+    debitAccountCode: string,
+    creditAccountCode: string
+  ): Promise<AmortizationEntry[]> {
+    // 先根据code查找对应的account id
+    const [debitAccount] = await db.select({ id: accounts.id }).from(accounts).where(eq(accounts.code, debitAccountCode));
+    const [creditAccount] = await db.select({ id: accounts.id }).from(accounts).where(eq(accounts.code, creditAccountCode));
+
+    if (!debitAccount || !creditAccount) {
+      return [];
+    }
+
+    // 通过月份、主体、部门、科目ID组合查找关联的摊销明细
+    const result = await db
+      .select({
+        id: amortizationEntries.id,
+        feeId: amortizationEntries.feeId,
+        month: amortizationEntries.month,
+        amount: amortizationEntries.amount,
+        cumulativeAmount: amortizationEntries.cumulativeAmount,
+        remainingAmount: amortizationEntries.remainingAmount,
+        voucherGenerated: amortizationEntries.voucherGenerated,
+      })
+      .from(amortizationEntries)
+      .innerJoin(fees, eq(amortizationEntries.feeId, fees.id))
+      .where(
+        and(
+          eq(amortizationEntries.month, month),
+          eq(fees.entityId, entityId),
+          eq(amortizationEntries.voucherGenerated, true),
+          department
+            ? eq(fees.department, department)
+            : sql`${fees.department} IS NULL`,
+          eq(fees.debitAccountId, debitAccount.id),
+          eq(fees.creditAccountId, creditAccount.id)
+        )
+      );
+    return result as AmortizationEntry[];
   }
 }
 
