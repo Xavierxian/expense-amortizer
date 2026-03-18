@@ -217,27 +217,27 @@ export default function VouchersPage() {
               <p className="text-xs mt-1">选择主体后点击「批量生成凭证」为当月摊销数据生成凭证</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div>
             <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-[120px] whitespace-nowrap">凭证号</TableHead>
-                    <TableHead className="min-w-[90px] whitespace-nowrap">日期</TableHead>
-                    <TableHead className="min-w-[200px]">摘要</TableHead>
-                    <TableHead className="min-w-[100px] whitespace-nowrap">承担部门</TableHead>
-                    <TableHead className="min-w-[150px]">借方科目</TableHead>
-                    <TableHead className="min-w-[150px]">贷方科目</TableHead>
-                    <TableHead className="min-w-[100px] text-right whitespace-nowrap">金额</TableHead>
-                    <TableHead className="min-w-[48px] text-center whitespace-nowrap">操作</TableHead>
+                    <TableHead className="w-[12%]">凭证号</TableHead>
+                    <TableHead className="w-[10%]">日期</TableHead>
+                    <TableHead className="w-[20%]">摘要</TableHead>
+                    <TableHead className="w-[10%]">承担部门</TableHead>
+                    <TableHead className="w-[16%]">借方科目</TableHead>
+                    <TableHead className="w-[16%]">贷方科目</TableHead>
+                    <TableHead className="w-[10%] text-right">金额</TableHead>
+                    <TableHead className="w-[6%] text-center">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {voucherList.map((v) => (
                     <TableRow key={v.id} data-testid={`row-voucher-${v.id}`}>
-                      <TableCell className="font-mono text-xs whitespace-nowrap">{v.voucherNo}</TableCell>
-                      <TableCell className="text-sm whitespace-nowrap">{v.voucherDate}</TableCell>
+                      <TableCell className="font-mono text-xs">{v.voucherNo}</TableCell>
+                      <TableCell className="text-sm">{v.voucherDate}</TableCell>
                       <TableCell className="text-sm">{v.summary}</TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell>
                         <Badge variant="secondary" className="text-xs">{v.department || "-"}</Badge>
                       </TableCell>
                       <TableCell className="text-xs">

@@ -140,16 +140,16 @@ export default function RulesPage() {
               <p className="text-xs mt-1">点击上方按钮添加费用类别的摊销规则</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div>
             <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-[140px] whitespace-nowrap">费用类别名称</TableHead>
-                    <TableHead className="min-w-[80px] text-center whitespace-nowrap">默认摊销月数</TableHead>
-                    <TableHead className="min-w-[160px]">借方科目</TableHead>
-                    <TableHead className="min-w-[160px]">贷方科目</TableHead>
-                    <TableHead className="min-w-[120px]">备注</TableHead>
-                    <TableHead className="min-w-[72px]"></TableHead>
+                    <TableHead className="w-[20%]">费用类别名称</TableHead>
+                    <TableHead className="w-[12%] text-center">默认摊销月数</TableHead>
+                    <TableHead className="w-[22%]">借方科目</TableHead>
+                    <TableHead className="w-[22%]">贷方科目</TableHead>
+                    <TableHead className="w-[16%]">备注</TableHead>
+                    <TableHead className="w-[8%]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

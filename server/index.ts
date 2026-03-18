@@ -4,9 +4,31 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedDatabase } from "./seed";
+import fs from "fs";
+import path from "path";
 
 const app = express();
 const httpServer = createServer(app);
+
+// 确保 logs 目录存在
+const logsDir = path.join(process.cwd(), "logs");
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+}
+
+// 获取今天的日志文件路径
+function getTodayLogPath(): string {
+  const date = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  return path.join(logsDir, `app-${date}.log`);
+}
+
+// 写入日志到文件，同时输出到控制台
+function writeLog(message: string) {
+  const logPath = getTodayLogPath();
+  const timestamp = new Date().toISOString();
+  const line = `[${timestamp}] ${message}\n`;
+  fs.appendFileSync(logPath, line, { encoding: "utf-8" });
+}
 
 declare module "http" {
   interface IncomingMessage {
@@ -25,14 +47,24 @@ app.use(
 app.use(express.urlencoded({ extended: false }));
 
 export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
+  const now = new Date();
+  const formattedTime = now.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hour12: true,
+    hour12: false,
   });
+  const ms = String(now.getMilliseconds()).padStart(3, "0");
+  const line = `[${formattedTime}.${ms}] [${source}] ${message}`;
+  console.log(line);
+  writeLog(line);
+}
 
-  console.log(`${formattedTime} [${source}] ${message}`);
+// 格式化响应体，超长时截断
+function formatResponse(body: any, maxLen = 200): string {
+  const str = JSON.stringify(body);
+  if (str.length <= maxLen) return str;
+  return str.slice(0, maxLen) + `...(${str.length - maxLen}字符省略)`;
 }
 
 app.use((req, res, next) => {
@@ -49,12 +81,9 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      log(logLine);
+      const responseStr = capturedJsonResponse ? formatResponse(capturedJsonResponse) : "";
+      // 每条日志单独一行，格式: [时间] METHOD path status | duration | response
+      log(`${req.method.padEnd(6)} ${path.padEnd(30)} ${res.statusCode} | ${duration}ms${responseStr ? " | " + responseStr : ""}`);
     }
   });
 
@@ -69,7 +98,9 @@ app.use((req, res, next) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    console.error("Internal Server Error:", err);
+    const errLine = `Internal Server Error: ${message}`;
+    console.error(errLine);
+    writeLog(`[ERROR] ${errLine}`);
 
     if (res.headersSent) {
       return next(err);

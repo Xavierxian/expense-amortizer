@@ -190,45 +190,45 @@ export default function AmortTablePage() {
               </Link>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div>
             <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-[80px] whitespace-nowrap">摊销月份</TableHead>
-                    <TableHead className="min-w-[100px] whitespace-nowrap">费用编号</TableHead>
-                    <TableHead className="min-w-[160px]">费用名称</TableHead>
-                    <TableHead className="min-w-[120px] whitespace-nowrap">所属主体</TableHead>
-                    <TableHead className="min-w-[100px] whitespace-nowrap">承担部门</TableHead>
-                    <TableHead className="min-w-[100px] whitespace-nowrap">费用类型</TableHead>
-                    <TableHead className="min-w-[100px] text-right whitespace-nowrap">本月摊销</TableHead>
-                    <TableHead className="min-w-[100px] text-right whitespace-nowrap">累计已摊销</TableHead>
-                    <TableHead className="min-w-[100px] text-right whitespace-nowrap">剩余未摊销</TableHead>
-                    <TableHead className="min-w-[120px]">借方科目</TableHead>
-                    <TableHead className="min-w-[120px]">贷方科目</TableHead>
-                    <TableHead className="min-w-[70px] whitespace-nowrap">凭证状态</TableHead>
-                    <TableHead className="min-w-[48px] text-center whitespace-nowrap">操作</TableHead>
+                    <TableHead className="w-[6%]">摊销月份</TableHead>
+                    <TableHead className="w-[8%]">费用编号</TableHead>
+                    <TableHead className="w-[14%]">费用名称</TableHead>
+                    <TableHead className="w-[10%]">所属主体</TableHead>
+                    <TableHead className="w-[8%]">承担部门</TableHead>
+                    <TableHead className="w-[8%]">费用类型</TableHead>
+                    <TableHead className="w-[8%] text-right">本月摊销</TableHead>
+                    <TableHead className="w-[8%] text-right">累计已摊销</TableHead>
+                    <TableHead className="w-[8%] text-right">剩余未摊销</TableHead>
+                    <TableHead className="w-[10%]">借方科目</TableHead>
+                    <TableHead className="w-[10%]">贷方科目</TableHead>
+                    <TableHead className="w-[6%]">凭证状态</TableHead>
+                    <TableHead className="w-[6%] text-center">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredEntries.map((entry) => (
                     <TableRow key={entry.id} data-testid={`row-entry-${entry.id}`}>
-                      <TableCell className="font-mono text-xs whitespace-nowrap">{entry.month}</TableCell>
-                      <TableCell className="font-mono text-xs whitespace-nowrap">{entry.feeCode}</TableCell>
+                      <TableCell className="font-mono text-xs">{entry.month}</TableCell>
+                      <TableCell className="font-mono text-xs">{entry.feeCode}</TableCell>
                       <TableCell className="text-sm">{entry.feeName}</TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell>
                         <Badge variant="outline" className="text-xs">{entry.entityName || "-"}</Badge>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell>
                         <Badge variant="secondary" className="text-xs">{entry.department || "-"}</Badge>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{entry.feeType || "-"}</TableCell>
-                      <TableCell className="text-right font-mono text-sm font-semibold whitespace-nowrap">
+                      <TableCell className="text-xs text-muted-foreground">{entry.feeType || "-"}</TableCell>
+                      <TableCell className="text-right font-mono text-sm font-semibold">
                         ¥{Number(entry.amount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground">
                         ¥{Number(entry.cumulativeAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground">
                         ¥{Number(entry.remainingAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </TableCell>
                       <TableCell className="text-xs">{entry.debitAccountName || "-"}</TableCell>

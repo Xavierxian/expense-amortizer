@@ -57,6 +57,39 @@ function feeeDateToMonth(feeDate: string): string {
   return "";
 }
 
+/**
+ * 从费用名称中解析日期区间，自动推断摊销起止月和月数
+ * 规则: 开始日期>=16日则取下月，否则取当月; 结束日期直接取所在月
+ */
+function parseDateRangeFromName(feeName: string): { startMonth: string; endMonth: string; amortMonths: number } | null {
+  if (!feeName) return null;
+  const datePattern = /(\d{4})[.\/-](\d{1,2})(?:[.\/-](\d{1,2}))?/g;
+  const matches: Array<{ year: number; month: number; day: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = datePattern.exec(feeName)) !== null) {
+    const year = parseInt(m[1]);
+    const month = parseInt(m[2]);
+    const day = m[3] ? parseInt(m[3]) : 1;
+    if (year >= 2000 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      matches.push({ year, month, day });
+    }
+  }
+  if (matches.length < 2) return null;
+  const first = matches[0];
+  const last = matches[matches.length - 1];
+  let sy = first.year, sm = first.month;
+  if (first.day >= 16) {
+    sm += 1;
+    if (sm > 12) { sm = 1; sy++; }
+  }
+  const ey = last.year, em = last.month;
+  const startStr = `${sy}-${String(sm).padStart(2, "0")}`;
+  const endStr = `${ey}-${String(em).padStart(2, "0")}`;
+  const totalMonths = (ey - sy) * 12 + (em - sm) + 1;
+  if (totalMonths < 1) return null;
+  return { startMonth: startStr, endMonth: endStr, amortMonths: totalMonths };
+}
+
 export default function FeesPage() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -361,39 +394,39 @@ export default function FeesPage() {
               <p className="text-xs mt-1">请选择主体后导入 Excel/CSV 文件或手动添加</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div>
             <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-[100px] whitespace-nowrap">费用编号</TableHead>
-                    <TableHead className="min-w-[160px]">费用名称</TableHead>
-                    <TableHead className="min-w-[120px] whitespace-nowrap">所属主体</TableHead>
-                    <TableHead className="min-w-[100px] whitespace-nowrap">承担部门</TableHead>
-                    <TableHead className="min-w-[100px] whitespace-nowrap">费用类型</TableHead>
-                    <TableHead className="min-w-[100px] text-right whitespace-nowrap">总金额</TableHead>
-                    <TableHead className="min-w-[90px] whitespace-nowrap">发生日期</TableHead>
-                    <TableHead className="min-w-[70px] text-center whitespace-nowrap">摊销月数</TableHead>
-                    <TableHead className="min-w-[140px] whitespace-nowrap">摊销区间</TableHead>
-                    <TableHead className="min-w-[64px] whitespace-nowrap">状态</TableHead>
-                    <TableHead className="min-w-[100px]"></TableHead>
+                    <TableHead className="w-[10%]">费用编号</TableHead>
+                    <TableHead className="w-[20%]">费用名称</TableHead>
+                    <TableHead className="w-[12%]">所属主体</TableHead>
+                    <TableHead className="w-[10%]">承担部门</TableHead>
+                    <TableHead className="w-[10%]">费用类型</TableHead>
+                    <TableHead className="w-[10%] text-right">总金额</TableHead>
+                    <TableHead className="w-[8%]">发生日期</TableHead>
+                    <TableHead className="w-[6%] text-center">摊销月数</TableHead>
+                    <TableHead className="w-[10%]">摊销区间</TableHead>
+                    <TableHead className="w-[6%]">状态</TableHead>
+                    <TableHead className="w-[8%]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filtered.map((fee) => (
                     <TableRow key={fee.id} data-testid={`row-fee-${fee.id}`}>
-                      <TableCell className="font-mono text-xs whitespace-nowrap">{fee.feeCode}</TableCell>
+                      <TableCell className="font-mono text-xs">{fee.feeCode}</TableCell>
                       <TableCell className="text-sm">{fee.feeName}</TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell>
                         <Badge variant="outline">{entityName(fee.entityId)}</Badge>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell>
                         <Badge variant="secondary">{fee.department || "-"}</Badge>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{fee.feeType || "-"}</TableCell>
-                      <TableCell className="text-right font-mono text-sm whitespace-nowrap">
+                      <TableCell className="text-xs text-muted-foreground">{fee.feeType || "-"}</TableCell>
+                      <TableCell className="text-right font-mono text-sm">
                         ¥{Number(fee.totalAmount).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-muted-foreground text-sm whitespace-nowrap">{normalizeDate(fee.feeDate)}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm">{normalizeDate(fee.feeDate)}</TableCell>
                       <TableCell className="text-center">
                         {fee.amortMonths ? (
                           <Badge variant="secondary">{fee.amortMonths} 月</Badge>
@@ -468,7 +501,29 @@ export default function FeesPage() {
             </div>
             <div>
               <Label>标题 *</Label>
-              <Input value={formData.feeName || ""} onChange={(e) => setFormData({ ...formData, feeName: e.target.value })} data-testid="input-fee-name" placeholder="费用名称或摘要" />
+              <Input
+                value={formData.feeName || ""}
+                onChange={(e) => {
+                  const feeName = e.target.value;
+                  const parsed = parseDateRangeFromName(feeName);
+                  setFormData({
+                    ...formData,
+                    feeName,
+                    ...(parsed ? { amortMonths: parsed.amortMonths, startMonth: parsed.startMonth, endMonth: parsed.endMonth } : {}),
+                  });
+                }}
+                data-testid="input-fee-name"
+                placeholder="费用名称或摘要"
+              />
+              {formData.feeName && (() => {
+                const parsed = parseDateRangeFromName(formData.feeName);
+                if (!parsed) return null;
+                return (
+                  <p className="text-xs text-blue-600 mt-1">
+                    自动识别区间：{parsed.startMonth} ~ {parsed.endMonth}，共 {parsed.amortMonths} 个月
+                  </p>
+                );
+              })()}
             </div>
             <div>
               <Label>支付公司 *</Label>

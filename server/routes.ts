@@ -4,8 +4,56 @@ import { storage } from "./storage";
 import { insertAccountSchema, insertFeeSchema, insertRuleTemplateSchema, insertEntitySchema } from "@shared/schema";
 import multer from "multer";
 import * as XLSX from "xlsx";
+import OpenAI from "openai";
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+// 初始化 OpenAI 客户端（兼容 DeepSeek 等第三方接口）
+const aiClient = new OpenAI({
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || "",
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || "https://api.openai.com/v1",
+});
+
+/**
+ * 调用 AI 生成凭证摘要
+ * @param feeNames 费用名称列表
+ * @param month 摊销月份
+ * @param fallback 默认备用摘要
+ */
+async function generateSummaryWithAI(
+  feeNames: string[],
+  month: string,
+  fallback: string
+): Promise<string> {
+  try {
+    const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+    if (!apiKey) return fallback;
+
+    const prompt = [
+      `以下是${month}月份费用摊销的费用名称列表：`,
+      feeNames.map((n, i) => `${i + 1}. ${n}`).join("\n"),
+      "",
+      `请为以上费用生成一条简洁的凭证摘要，要求：`,
+      `1. 概括费用类别和主要内容，不要列举具体费用名称`,
+      `2. 包含"${month}摊销"`,
+      `3. 长度不超过50个字`,
+      `4. 只返回摘要文字，不要加解释和引号`,
+    ].join("\n");
+
+    const response = await aiClient.chat.completions.create({
+      model: "DeepSeek-V3.2",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 100,
+      temperature: 0.3,
+    });
+
+    const result = response.choices[0]?.message?.content?.trim();
+    return result || fallback;
+  } catch (e) {
+    console.warn("[AI摘要] 生成失败，使用默认摘要:", (e as Error).message);
+    return fallback;
+  }
+}
 
 function getCurrentMonth(): string {
   const now = new Date();
@@ -49,6 +97,41 @@ function addMonths(yearMonth: string, count: number): string {
   const newY = Math.floor(totalMonths / 12);
   const newM = (totalMonths % 12) + 1;
   return `${newY}-${String(newM).padStart(2, "0")}`;
+}
+
+/**
+ * 从费用名称中解析日期区间，自动推断摊销起止月和月数
+ * 支持格式: YYYY.MM.DD-YYYY.MM.DD / YYYY.MM-YYYY.MM 等
+ * 规则: 开始日期>=16日则取下月，否则取当月; 结束日期直接取所在月
+ */
+function parseDateRangeFromName(feeName: string): { startMonth: string; endMonth: string; amortMonths: number } | null {
+  if (!feeName) return null;
+  const datePattern = /(\d{4})[.\/-](\d{1,2})(?:[.\/-](\d{1,2}))?/g;
+  const matches: Array<{ year: number; month: number; day: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = datePattern.exec(feeName)) !== null) {
+    const year = parseInt(m[1]);
+    const month = parseInt(m[2]);
+    const day = m[3] ? parseInt(m[3]) : 1;
+    if (year >= 2000 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      matches.push({ year, month, day });
+    }
+  }
+  if (matches.length < 2) return null;
+  const first = matches[0];
+  const last = matches[matches.length - 1];
+  // 开始月: >=16日取下月
+  let sy = first.year, sm = first.month;
+  if (first.day >= 16) {
+    sm += 1;
+    if (sm > 12) { sm = 1; sy++; }
+  }
+  const ey = last.year, em = last.month;
+  const startStr = `${sy}-${String(sm).padStart(2, "0")}`;
+  const endStr = `${ey}-${String(em).padStart(2, "0")}`;
+  const totalMonths = (ey - sy) * 12 + (em - sm) + 1;
+  if (totalMonths < 1) return null;
+  return { startMonth: startStr, endMonth: endStr, amortMonths: totalMonths };
 }
 
 function getMonthsBetween(start: string, end: string): string[] {
@@ -337,9 +420,11 @@ export async function registerRoutes(
         }
 
         const template = templateId ? await storage.getRuleTemplate(templateId) : null;
-        const startMonth = feeeDateToMonth(feeDate);
-        const amortMonths = template?.defaultMonths || null;
-        const endMonth = amortMonths ? addMonths(startMonth, amortMonths) : null;
+        // 优先从费用名称中解析日期区间
+        const parsedRange = parseDateRangeFromName(feeName);
+        const startMonth = parsedRange?.startMonth || feeeDateToMonth(feeDate);
+        const amortMonths = parsedRange?.amortMonths || template?.defaultMonths || null;
+        const endMonth = parsedRange?.endMonth || (amortMonths ? addMonths(startMonth, amortMonths) : null);
 
         const newFee = await storage.createFee({
           entityId,
@@ -506,19 +591,22 @@ export async function registerRoutes(
       let counter = voucherCount + 1;
       const generated: any[] = [];
 
-      Array.from(groups.entries()).forEach(async ([key, groupEntries]) => {
+      for (const [key, groupEntries] of Array.from(groups.entries())) {
         const [department] = key.split('|');
         const totalAmount = groupEntries.reduce((sum: number, e: EntryWithDetails) => sum + Number(e.amount), 0);
         const firstEntry = groupEntries[0];
-        
+
         const voucherNo = `PZ-${month.replace("-", "")}-${String(counter).padStart(4, "0")}`;
         const voucherDate = `${month}-01`;
-        
-        // 生成摘要：包含费用名称列表（最多3个）
+
+        // 构建默认备用摘要
         const feeNames = Array.from(new Set(groupEntries.map((e: EntryWithDetails) => e.feeName)));
         const summaryFeeNames = feeNames.slice(0, 3).join("、");
         const moreCount = feeNames.length > 3 ? `等${feeNames.length}笔` : "";
-        const summary = `${summaryFeeNames}${moreCount} ${month} 摊销`;
+        const fallbackSummary = `${summaryFeeNames}${moreCount} ${month} 摊销`;
+
+        // 调用 AI 生成更语义化的摘要，失败时回退至默认摘要
+        const summary = await generateSummaryWithAI(feeNames, month, fallbackSummary);
 
         const voucher = await storage.createVoucher({
           entityId,
@@ -540,10 +628,10 @@ export async function registerRoutes(
         for (const entry of groupEntries) {
           await storage.markEntryVoucherGenerated(entry.id);
         }
-        
+
         generated.push(voucher);
         counter++;
-      });
+      }
 
       res.json({ generated: generated.length, vouchers: generated });
     } catch (e: any) {
