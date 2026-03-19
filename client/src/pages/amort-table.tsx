@@ -43,11 +43,15 @@ export default function AmortTablePage() {
     queryKey: ["/api/amort-table", `?month=${month}${entityParam}`],
   });
 
-  // 获取所有借方科目（去重）
-  const debitAccounts = Array.from(new Set(entries
+  // 获取所有借方科目（按code去重）
+  const debitAccounts = entries
     .filter(e => e.debitAccountCode)
-    .map(e => ({ code: e.debitAccountCode!, name: e.debitAccountName! }))
-  ));
+    .reduce<{ code: string; name: string }[]>((acc, e) => {
+      if (!acc.find(a => a.code === e.debitAccountCode)) {
+        acc.push({ code: e.debitAccountCode!, name: e.debitAccountName! });
+      }
+      return acc;
+    }, []);
 
   // 筛选后的数据
   const filteredEntries = selectedDebitAccount && selectedDebitAccount !== "all"
