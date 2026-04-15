@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +29,7 @@ export default function AmortTablePage() {
   const [month, setMonth] = useState(getCurrentMonth());
   const [selectedEntityId, setSelectedEntityId] = useState<string>("");
   const [selectedDebitAccount, setSelectedDebitAccount] = useState<string>("");
+  const [selectedEntryIds, setSelectedEntryIds] = useState<number[]>([]);
 
   const { data: entityList = [] } = useQuery<Entity[]>({
     queryKey: ["/api/entities"],
@@ -73,7 +74,55 @@ export default function AmortTablePage() {
     },
   });
 
+  const batchDeleteEntriesMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const res = await apiRequest("POST", "/api/entries/batch-delete", { ids });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/amort-table"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      setSelectedEntryIds([]);
+      toast({
+        title: "批量删除完成",
+        description: `请求 ${data.requested} 条，删除 ${data.deleted} 条，跳过 ${data.skipped} 条`,
+      });
+    },
+    onError: (e: Error) => {
+      toast({ title: "批量删除失败", description: e.message, variant: "destructive" });
+    },
+  });
+
   const totalAmount = filteredEntries.reduce((sum, e) => sum + Number(e.amount), 0);
+
+  useEffect(() => {
+    const validIds = new Set(entries.map((e) => e.id));
+    setSelectedEntryIds((prev) => prev.filter((id) => validIds.has(id)));
+  }, [entries]);
+
+  const selectableEntryIds = filteredEntries.filter((e) => !e.voucherGenerated).map((e) => e.id);
+  const allSelectableSelected = selectableEntryIds.length > 0 && selectableEntryIds.every((id) => selectedEntryIds.includes(id));
+
+  const toggleSelectAllEntries = (checked: boolean) => {
+    if (checked) {
+      setSelectedEntryIds((prev) => Array.from(new Set([...prev, ...selectableEntryIds])));
+      return;
+    }
+    setSelectedEntryIds((prev) => prev.filter((id) => !selectableEntryIds.includes(id)));
+  };
+
+  const toggleSelectEntry = (id: number, checked: boolean) => {
+    setSelectedEntryIds((prev) => {
+      if (checked) return Array.from(new Set([...prev, id]));
+      return prev.filter((x) => x !== id);
+    });
+  };
+
+  const handleBatchDeleteEntries = () => {
+    if (selectedEntryIds.length === 0 || batchDeleteEntriesMutation.isPending) return;
+    if (!window.confirm(`确认批量删除已选的 ${selectedEntryIds.length} 条摊销明细吗？`)) return;
+    batchDeleteEntriesMutation.mutate(selectedEntryIds);
+  };
 
   const handleExportExcel = () => {
     const rows = filteredEntries.map((e) => ({
@@ -155,6 +204,17 @@ export default function AmortTablePage() {
               导出 Excel
             </Button>
           )}
+          {selectedEntryIds.length > 0 && (
+            <Button
+              variant="destructive"
+              onClick={handleBatchDeleteEntries}
+              disabled={batchDeleteEntriesMutation.isPending}
+              data-testid="button-batch-delete-entries"
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              {batchDeleteEntriesMutation.isPending ? "删除中..." : `批量删除 (${selectedEntryIds.length})`}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -198,6 +258,14 @@ export default function AmortTablePage() {
             <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-[3%] text-center">
+                      <input
+                        type="checkbox"
+                        checked={allSelectableSelected}
+                        onChange={(e) => toggleSelectAllEntries(e.target.checked)}
+                        aria-label="select all entries"
+                      />
+                    </TableHead>
                     <TableHead className="w-[6%]">摊销月份</TableHead>
                     <TableHead className="w-[8%]">费用编号</TableHead>
                     <TableHead className="w-[14%]">费用名称</TableHead>
@@ -216,6 +284,15 @@ export default function AmortTablePage() {
                 <TableBody>
                   {filteredEntries.map((entry) => (
                     <TableRow key={entry.id} data-testid={`row-entry-${entry.id}`}>
+                      <TableCell className="text-center">
+                        <input
+                          type="checkbox"
+                          disabled={entry.voucherGenerated}
+                          checked={selectedEntryIds.includes(entry.id)}
+                          onChange={(e) => toggleSelectEntry(entry.id, e.target.checked)}
+                          aria-label={`select entry ${entry.id}`}
+                        />
+                      </TableCell>
                       <TableCell className="font-mono text-xs">{entry.month}</TableCell>
                       <TableCell className="font-mono text-xs">{entry.feeCode}</TableCell>
                       <TableCell className="text-sm">{entry.feeName}</TableCell>

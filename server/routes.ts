@@ -334,6 +334,48 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
+  app.post("/api/fees/batch-delete", async (req, res) => {
+    try {
+      const idsRaw: unknown[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      const ids: number[] = idsRaw.reduce((acc: number[], rawId: unknown) => {
+        const id = Number(rawId);
+        if (Number.isInteger(id) && id > 0 && !acc.includes(id)) acc.push(id);
+        return acc;
+      }, []);
+
+      if (ids.length === 0) {
+        return res.status(400).json({ message: "Invalid fee id list" });
+      }
+
+      let deleted = 0;
+      const failedIds: number[] = [];
+
+      for (const id of ids) {
+        try {
+          await storage.deleteEntriesByFeeId(id);
+          const ok = await storage.deleteFee(id);
+          if (ok) {
+            deleted++;
+          } else {
+            failedIds.push(id);
+          }
+        } catch {
+          failedIds.push(id);
+        }
+      }
+
+      res.json({
+        success: true,
+        requested: ids.length,
+        deleted,
+        failed: failedIds.length,
+        failedIds,
+      });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
   app.get("/api/import-template", (_req, res) => {
     const wb = XLSX.utils.book_new();
     const header = ["单号", "标题", "支付公司", "支付日期", "费用类型名称", "金额", "消费事由", "承担部门"];
@@ -707,6 +749,55 @@ export async function registerRoutes(
       
       await storage.deleteEntry(id);
       res.json({ success: true, message: "摊销明细已删除" });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/entries/batch-delete", async (req, res) => {
+    try {
+      const idsRaw: unknown[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      const ids: number[] = idsRaw.reduce((acc: number[], rawId: unknown) => {
+        const id = Number(rawId);
+        if (Number.isInteger(id) && id > 0 && !acc.includes(id)) acc.push(id);
+        return acc;
+      }, []);
+
+      if (ids.length === 0) {
+        return res.status(400).json({ message: "Invalid amortization entry id list" });
+      }
+
+      let deleted = 0;
+      const skippedWithVoucher: number[] = [];
+      const notFound: number[] = [];
+
+      for (const id of ids) {
+        const entry = await storage.getEntry(id);
+        if (!entry) {
+          notFound.push(id);
+          continue;
+        }
+        if (entry.voucherGenerated) {
+          skippedWithVoucher.push(id);
+          continue;
+        }
+
+        const ok = await storage.deleteEntry(id);
+        if (ok) {
+          deleted++;
+        } else {
+          notFound.push(id);
+        }
+      }
+
+      res.json({
+        success: true,
+        requested: ids.length,
+        deleted,
+        skipped: skippedWithVoucher.length + notFound.length,
+        skippedWithVoucher,
+        notFound,
+      });
     } catch (e: any) {
       res.status(400).json({ message: e.message });
     }

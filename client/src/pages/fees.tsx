@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -94,7 +94,9 @@ export default function FeesPage() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
+  const [selectedFeeIds, setSelectedFeeIds] = useState<number[]>([]);
   const [selectedEntityId, setSelectedEntityId] = useState<string>("");
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [amortDialogOpen, setAmortDialogOpen] = useState(false);
   const [selectedFee, setSelectedFee] = useState<Fee | null>(null);
@@ -195,6 +197,26 @@ export default function FeesPage() {
     },
   });
 
+  const batchDeleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const res = await apiRequest("POST", "/api/fees/batch-delete", { ids });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/fees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/amort-table"] });
+      setSelectedFeeIds([]);
+      toast({
+        title: "批量删除完成",
+        description: `请求 ${data.requested} 条，删除 ${data.deleted} 条，失败 ${data.failed} 条`,
+      });
+    },
+    onError: (e: Error) => {
+      toast({ title: "批量删除失败", description: e.message, variant: "destructive" });
+    },
+  });
+
   const configureAmortMutation = useMutation({
     mutationFn: async (data: { id: number; amortMonths: number; startMonth: string; debitAccountId: number | null; creditAccountId: number | null }) => {
       const res = await apiRequest("POST", `/api/configure-fee-amort/${data.id}`, {
@@ -287,9 +309,59 @@ export default function FeesPage() {
 
   const filtered = fees.filter(
     (f) =>
-      f.feeCode.toLowerCase().includes(search.toLowerCase()) ||
-      f.feeName.toLowerCase().includes(search.toLowerCase())
+      (f.feeCode.toLowerCase().includes(search.toLowerCase()) ||
+        f.feeName.toLowerCase().includes(search.toLowerCase())) &&
+      (!selectedMonth || feeeDateToMonth(f.feeDate) === selectedMonth)
   );
+
+  const availableMonths = Array.from(
+    new Set(
+      fees
+        .map((f) => feeeDateToMonth(f.feeDate))
+        .filter((m) => Boolean(m))
+    )
+  ).sort((a, b) => b.localeCompare(a));
+
+  useEffect(() => {
+    if (availableMonths.length === 0) {
+      setSelectedMonth("");
+      return;
+    }
+    setSelectedMonth((prev) => {
+      if (prev && availableMonths.includes(prev)) return prev;
+      return availableMonths[0];
+    });
+  }, [availableMonths]);
+
+  useEffect(() => {
+    const validIds = new Set(fees.map((f) => f.id));
+    setSelectedFeeIds((prev) => prev.filter((id) => validIds.has(id)));
+  }, [fees]);
+
+  const visibleFeeIds = filtered.map((f) => f.id);
+  const allVisibleSelected = visibleFeeIds.length > 0 && visibleFeeIds.every((id) => selectedFeeIds.includes(id));
+  const selectedCount = selectedFeeIds.length;
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    if (checked) {
+      setSelectedFeeIds((prev) => Array.from(new Set([...prev, ...visibleFeeIds])));
+      return;
+    }
+    setSelectedFeeIds((prev) => prev.filter((id) => !visibleFeeIds.includes(id)));
+  };
+
+  const toggleSelectFee = (id: number, checked: boolean) => {
+    setSelectedFeeIds((prev) => {
+      if (checked) return Array.from(new Set([...prev, id]));
+      return prev.filter((x) => x !== id);
+    });
+  };
+
+  const handleBatchDeleteFees = () => {
+    if (selectedFeeIds.length === 0 || batchDeleteMutation.isPending) return;
+    if (!window.confirm(`确认批量删除已选的 ${selectedFeeIds.length} 条费用吗？`)) return;
+    batchDeleteMutation.mutate(selectedFeeIds);
+  };
 
   return (
     <div className="p-6 space-y-4">
@@ -379,6 +451,19 @@ export default function FeesPage() {
                   data-testid="input-search-fees"
                 />
               </div>
+              <Input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="w-40" data-testid="input-filter-month" />
+              {selectedCount > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleBatchDeleteFees}
+                  disabled={batchDeleteMutation.isPending}
+                  data-testid="button-batch-delete-fees"
+                >
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  {batchDeleteMutation.isPending ? "删除中..." : `批量删除 (${selectedCount})`}
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -398,6 +483,14 @@ export default function FeesPage() {
             <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-[3%] text-center">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={(e) => toggleSelectAllVisible(e.target.checked)}
+                        aria-label="select all fees"
+                      />
+                    </TableHead>
                     <TableHead className="w-[10%]">费用编号</TableHead>
                     <TableHead className="w-[20%]">费用名称</TableHead>
                     <TableHead className="w-[12%]">所属主体</TableHead>
@@ -414,6 +507,14 @@ export default function FeesPage() {
                 <TableBody>
                   {filtered.map((fee) => (
                     <TableRow key={fee.id} data-testid={`row-fee-${fee.id}`}>
+                      <TableCell className="text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedFeeIds.includes(fee.id)}
+                          onChange={(e) => toggleSelectFee(fee.id, e.target.checked)}
+                          aria-label={`select fee ${fee.id}`}
+                        />
+                      </TableCell>
                       <TableCell className="font-mono text-xs">{fee.feeCode}</TableCell>
                       <TableCell className="text-sm">{fee.feeName}</TableCell>
                       <TableCell>
